@@ -1,0 +1,12 @@
+[submodule "software/third_party/pico-mcp23017"]
+	path = software/third_party/pico-mcp23017
+	url = https://github.com/adamboardman/pico-mcp23017
+[submodule "software/third_party/pico-interfaces"]
+	path = software/third_party/pico-interfaces
+	url = https://github.com/adamboardman/pico-interfaces
+[submodule "software/third_party/ADS1115"]
+	path = software/third_party/ADS1115
+	url = https://github.com/addicore/ADS1115.git
+[submodule "software/third_party/BNO055_SensorAPI"]
+	path = software/third_party/BNO055_SensorAPI
+	url = https://github.com/boschsensortec/BNO055_SensorAPI.git

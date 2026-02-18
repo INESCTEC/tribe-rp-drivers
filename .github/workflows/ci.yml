@@ -1,0 +1,94 @@
+name: TRIBE-RP-DRIVERS CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "software/**"
+      - ".github/workflows/**"
+      - "!software/README.md"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: sudo apt update && sudo apt install -y clang-format
+
+      - name: Check formatting
+        run: |
+          cd software
+          chmod +x scripts/format_code.sh
+          ./scripts/format_code.sh --check 2>&1 | tee format.log
+
+      - name: Upload format log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: format-log
+          path: software/format.log
+
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: sudo apt update && sudo apt install -y cppcheck
+
+      - name: Run cppcheck
+        run: |
+          cd software
+          chmod +x scripts/static_analysis.sh
+          ./scripts/static_analysis.sh --quiet 2>&1 | tee static_analysis.log
+
+      - name: Upload static analysis log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-analysis-log
+          path: software/static_analysis.log
+
+  build:
+    needs: [format, static-analysis]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            cmake \
+            gcc-arm-none-eabi \
+            libnewlib-arm-none-eabi \
+            build-essential
+
+      - name: Clone Pico SDK
+        run: |
+          git clone https://github.com/raspberrypi/pico-sdk.git --depth=1 --recurse-submodules --shallow-submodules $HOME/pico-sdk
+          echo "PICO_SDK_PATH=$HOME/pico-sdk" >> $GITHUB_ENV
+
+      - name: Check submodules
+        run: git submodule status
+
+      - name: Build firmware
+        run: |
+          cd software
+          chmod +x scripts/build.sh
+          ./scripts/build.sh 2>&1 | tee build.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: software/build.log
