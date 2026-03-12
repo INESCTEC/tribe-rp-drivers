@@ -104,6 +104,12 @@ ___
 - [x] I2C
 - [x] UART
 - [x] USB
+- [x] Simple GPIO
+- [x] Simple PWM
+- [ ] Simple Timer
+- [ ] Simple I2C
+- [ ] Simple ADC
+
 ### Drivers
 - [x] Air temperature and humidity sensor HTU21D
 - [x] Flash memory
