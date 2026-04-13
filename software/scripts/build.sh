@@ -26,3 +26,4 @@ for dir in third_party interfaces drivers examples; do
   make -j$(nproc)
   make install
 done
+

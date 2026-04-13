@@ -61,7 +61,7 @@ link_directories(${CMAKE_CURRENT_BINARY_DIR}/../../extern/tribe-rp-drivers/softw
 # Find include paths
 include_directories(PROJECT_NAME PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../../extern/tribe-rp-drivers/software/build/drivers/include/)
 include_directories(PROJECT_NAME PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../../extern/tribe-rp-drivers/software/build/interfaces/include/)
-include_directories(PROJECT_NAME PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../../extern/tribe-rp-drivers/software/build/interfaces/third-party/)
+include_directories(PROJECT_NAME PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../../extern/tribe-rp-drivers/software/build/third_party/include/)
 
 add_executable(PROJECT_EXEC_NAME
                 src/file_name.cpp)
@@ -104,6 +104,12 @@ ___
 - [x] I2C
 - [x] UART
 - [x] USB
+- [x] Simple GPIO
+- [x] Simple PWM
+- [ ] Simple Timer
+- [ ] Simple I2C
+- [ ] Simple ADC
+
 ### Drivers
 - [x] Air temperature and humidity sensor HTU21D
 - [x] Flash memory
@@ -121,7 +127,9 @@ ___
 - [X] FD60 linear actuator
 - [X] LD20 linear actuator
 - [X] MCP23017 16-Bit I/O expander
-
+- [X] ADS8684 - 16-Bit, 500-kSPS, 4-Ch SAR ADC w/ programmable (±10/±5/±2.5V) input ranges on +5V supply
+- [X] AD7980 - 16-Bit, 1 MSPS, PulSAR ADC in MSOP/LFCSP
+- [X] AD5680 - 5 V 18-Bit nanoDAC® in a SOT-23
 ___
 
 ## Contributors
@@ -130,15 +138,16 @@ We thank the following team members for their contributions to this repository:
 | Name                        | Email                            |
 |-----------------------------| -------------------------------- |
 | **Pedro Moura** (main contact)     | [pedro.h.moura@inesctec.pt](mailto:pedro.h.moura@inesctec.pt) |
-| André Aguiar    | [andre.s.aguiar@inesctec.pt](mailto:andre.s.aguiar@inesctec.pt) |
-| Daniel Silva    | [daniel.q.silva@inesctec.pt](mailto:daniel.q.silva@inesctec.pt) |
-| Domingos Bento  | [domingos.bento@inesctec.pt](mailto:domingos.bento@inesctec.pt) |
-| Francisco Terra | [francisco.m.terra@inesctec.pt](mailto:francisco.m.terra@inesctec.pt) |
-| Filipe Santos   | [filipe.n.santos@inesctec.pt](mailto:filipe.n.santos@inesctec.pt) |
-| Isabel Pinheiro | [isabel.a.pinheiro@inesctec.pt](mailto:isabel.a.pinheiro@inesctec.pt) |
-| João Castro     | [joao.t.castro@inesctec.pt](mailto:joao.t.castro@inesctec.pt) |
-| Pedro Rodrigues | [pedro.rodrigues@inesctec.pt](mailto:pedro.rodrigues@inesctec.pt) |
-| Vítor Tinoco    | [vitor.tinoco@inesctec.pt](mailto:vitor.tinoco@inesctec.pt) |
+| André Aguiar     | [andre.s.aguiar@inesctec.pt](mailto:andre.s.aguiar@inesctec.pt) |
+| Daniel Silva     | [daniel.q.silva@inesctec.pt](mailto:daniel.q.silva@inesctec.pt) |
+| Domingos Bento   | [domingos.bento@inesctec.pt](mailto:domingos.bento@inesctec.pt) |
+| Francisco Terra  | [francisco.m.terra@inesctec.pt](mailto:francisco.m.terra@inesctec.pt) |
+| Filipe Santos    | [filipe.n.santos@inesctec.pt](mailto:filipe.n.santos@inesctec.pt) |
+| Isabel Pinheiro  | [isabel.a.pinheiro@inesctec.pt](mailto:isabel.a.pinheiro@inesctec.pt) |
+| João Castro      | [joao.t.castro@inesctec.pt](mailto:joao.t.castro@inesctec.pt) |
+| Pedro Rodrigues  | [pedro.rodrigues@inesctec.pt](mailto:pedro.rodrigues@inesctec.pt) |
+| Vítor Tinoco     | [vitor.tinoco@inesctec.pt](mailto:vitor.tinoco@inesctec.pt) |
+| Sandro Magalhães | [sandro.a.magalhaes@inesctec.pt](mailto:sandro.a.magalhaes@inesctec.pt) |
 
 ___
 

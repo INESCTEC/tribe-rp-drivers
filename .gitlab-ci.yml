@@ -1,0 +1,152 @@
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+      changes:
+        - software/**/*
+        - .gitlab/workflows/**/*
+        - "!software/README.md"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"
+      changes:
+        - software/**/*
+        - .gitlab/workflows/**/*
+        - "!software/README.md"
+    - when: never
+
+stages:
+  - lint
+  - format
+  - format-fix
+  - static-analysis
+  - build
+
+check_filename_prefix:
+  stage: lint
+  image: ubuntu:latest
+  script:
+    - |
+      set -eu
+      find . -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) \
+        -not -path "*/third_party/*" \
+        -not -path "*/examples/*" \
+        -print | awk -F/ '
+          BEGIN {
+            print "Files missing required prefix rp_agrolib_:"
+          }
+          {
+            base=$NF;
+            if (base !~ /^rp_agrolib_/) {
+              print " - " $0;
+              bad=1;
+              count++;
+            }
+          }
+          END {
+            if (bad) {
+              print "Total:", count;
+              exit 1;
+            }
+          }
+        '
+  allow_failure: false
+
+check_library_name_prefix:
+  stage: lint
+  image: ubuntu:latest
+  script:
+    - |
+      set -eu
+      awk '
+        BEGIN {
+          header_printed=0;
+          count=0;
+        }
+        {
+          if (match($0, /add_library[[:space:]]*\([[:space:]]*[A-Za-z0-9_]+/)) {
+            name=substr($0, RSTART, RLENGTH);
+            sub(/.*\(/, "", name);
+            if (name !~ /^rp_agrolib_/) {
+              if (!header_printed) {
+                print "CMake library names missing required prefix rp_agrolib_ (file:line: name):";
+                header_printed=1;
+              }
+              print " - " FILENAME ":" FNR ": add_library(" name ")";
+              count++;
+            }
+          }
+        }
+        END {
+          if (count > 0) {
+            print "Total:", count;
+            exit 1;
+          }
+        }
+      ' software/interfaces/CMakeLists.txt software/drivers/CMakeLists.txt
+  allow_failure: false
+
+format:
+  stage: format
+  image: ubuntu:latest
+  script:
+    - |
+      set -euo pipefail
+      apt-get update
+      apt-get install -y clang-format git
+      cd software
+      chmod +x scripts/format_code.sh
+      ./scripts/format_code.sh
+      cd ..
+      git diff --patch --no-color > format.patch || true
+      if [ ! -s format.patch ]; then
+        echo "No formatting changes were produced."
+      fi
+    - clang-format --version  
+  artifacts:
+    when: always
+    paths:
+      - format.patch
+
+static_analysis:
+  stage: static-analysis
+  image: ubuntu:latest
+  script:
+    - |
+      set -euo pipefail
+      apt-get update
+      apt-get install -y cppcheck git
+      cppcheck --version
+      cd software
+      chmod +x scripts/static_analysis.sh
+      status=0
+      ./scripts/static_analysis.sh --quiet > static_analysis.log 2>&1 || status=$?
+      cat static_analysis.log
+      exit $status
+  artifacts:
+    when: always
+    paths:
+      - software/static_analysis.log
+
+build:
+  stage: build
+  image: ubuntu:latest
+  needs: [format, static_analysis]
+  script:
+    - |
+      set -eu
+      apt-get update
+      apt-get install -y \
+        cmake \
+        gcc-arm-none-eabi \
+        libnewlib-arm-none-eabi \
+        build-essential \
+        git \
+        python3
+      git submodule update --init --recursive
+      git clone https://github.com/raspberrypi/pico-sdk.git --depth=1 --recurse-submodules --shallow-submodules /tmp/pico-sdk
+      export PICO_SDK_PATH=/tmp/pico-sdk
+      cd software
+      chmod +x scripts/build.sh
+      ./scripts/build.sh 2>&1 | tee build.log
+  artifacts:
+    when: always
+    paths:
+      - software/build.log

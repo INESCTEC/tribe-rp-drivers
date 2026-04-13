@@ -533,6 +533,95 @@ install(TARGETS rp_agrolib_bno055
 
 
 ###########################################################################
+# ADS8684 - TI ADC of 16 bits with SPI interface (4 channels)
+###########################################################################
+
+add_library(rp_agrolib_ads8684
+        src/rp_agrolib_ads8684.cpp
+        include/rp_agrolib_ads8684.h)
+
+pico_enable_stdio_usb(rp_agrolib_ads8684 1)
+pico_enable_stdio_uart(rp_agrolib_ads8684 0)
+
+target_link_libraries(rp_agrolib_ads8684 PUBLIC
+        pico_stdlib
+        hardware_spi
+        hardware_gpio
+        )
+
+target_include_directories(rp_agrolib_ads8684 PUBLIC
+		${CMAKE_CURRENT_SOURCE_DIR}/include
+		)
+
+install(TARGETS rp_agrolib_ads8684
+        ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin
+        )
+
+
+###########################################################################
+# AD7980 - Analog Devices ADC of 16 bits with SPI interface
+###########################################################################
+
+add_library(rp_agrolib_ad7980
+        src/rp_agrolib_ad7980.cpp
+        include/rp_agrolib_ad7980.h)
+
+pico_enable_stdio_usb(rp_agrolib_ad7980 1)
+pico_enable_stdio_uart(rp_agrolib_ad7980 0)
+
+target_link_libraries(rp_agrolib_ad7980 PUBLIC
+        pico_stdlib
+        hardware_spi
+        hardware_gpio
+        )
+
+target_include_directories(rp_agrolib_ad7980 PUBLIC
+		${CMAKE_CURRENT_SOURCE_DIR}/include
+		)
+
+install(TARGETS rp_agrolib_ad7980
+        ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin
+        )
+
+# Enable interrupt support
+target_compile_definitions(rp_agrolib_ad7980 PRIVATE
+    PICO_MAX_SHARED_IRQ_HANDLERS=8
+)
+
+
+###########################################################################
+# AD5680 - Analog Devices DAC of 16 bits with SPI interface
+###########################################################################
+
+add_library(rp_agrolib_ad5680
+        src/rp_agrolib_ad5680.cpp
+        include/rp_agrolib_ad5680.h)
+
+pico_enable_stdio_usb(rp_agrolib_ad5680 1)
+pico_enable_stdio_uart(rp_agrolib_ad5680 0)
+
+target_link_libraries(rp_agrolib_ad5680 PUBLIC
+        pico_stdlib
+        hardware_spi
+        hardware_gpio
+        )
+
+target_include_directories(rp_agrolib_ad5680 PUBLIC
+		${CMAKE_CURRENT_SOURCE_DIR}/include
+		)
+
+install(TARGETS rp_agrolib_ad5680
+        ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin
+        )
+
+
+###########################################################################
 # COMMON - To all drivers
 ###########################################################################
 

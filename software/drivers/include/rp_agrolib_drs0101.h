@@ -169,7 +169,7 @@ enum class HerkulexLed : uint8_t {
         return (T) (static_cast<uint8_t>(lhs) X static_cast<uint8_t>(rhs));                        \
     }
 #define ENUM_FLAG_ASSIGNMENT_OPERATOR(T, X, Y)                                                     \
-    inline T &operator X(T & lhs, const T & rhs) {                                                 \
+    inline T &operator X(T &lhs, const T &rhs) {                                                   \
         return lhs = (lhs Y rhs);                                                                  \
     }
 
