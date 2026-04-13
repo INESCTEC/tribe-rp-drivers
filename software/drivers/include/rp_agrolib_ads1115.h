@@ -125,7 +125,7 @@ ADSXGain_e PICO_ADS1X15_getGain();
 void PICO_ADS1X15_setDataRate(PICO_ADS1X15 *ads1x15, uint16_t rate);
 uint16_t PICO_ADS1X15_getDataRate();
 uint16_t PICO_ADS1X15_readRegister(PICO_ADS1X15 *ads1x15, uint8_t registerRead);
-
+void PICO_ADS1X15_writeRegister(PICO_ADS1X15 *ads1x15, uint8_t reg, uint16_t value);
 
 int16_t PICO_ADS1X15_readADC_SingleEnded(PICO_ADS1X15 *ads1x15, ADSX_AINX_e channel);
 void PICO_ADS1X15_startADCReading(PICO_ADS1X15 *ads1x15, ADSXRegConfig_e mux,

@@ -432,7 +432,7 @@ unsigned int LoRaE5Class::getbitRate(unsigned int *pbitRate, float *ptxHead_time
             substr[3] = '\0';            // add the end of the string
         } else {
             substr[4] = '\0';
-        }  // 2 digit data rate:"DR15"
+        }                                 // 2 digit data rate:"DR15"
         pstr = strstr(recv_buf, substr);  // Searchs for "DR0 " in first time
         pstr = strstr(pstr + 4, substr);  // Searchs for "DR0 " into second time
         if (pstr != NULL) {
@@ -840,7 +840,7 @@ unsigned int LoRaE5Class::transferPacket(unsigned char *buffer, unsigned char le
     sprintf(cmd + strlen(cmd), "AT+MSGHEX=\"");  // name of the command
     for (i = 0; i < length; i++) {
         sprintf(cmd + strlen(cmd), "%02x", buffer[i]);
-    }  // add the characters in hex format
+    }                                      // add the characters in hex format
     sprintf(cmd + strlen(cmd), "\"\r\n");  // end of command
     time_ret = at_send_check_response(cmd, (char *) "Done", timeout, NULL);
     return time_ret;
@@ -1046,7 +1046,7 @@ unsigned int LoRaE5Class::transferProprietaryPacket(unsigned char *buffer, unsig
     sprintf(cmd + strlen(cmd), "AT+PMSGHEX=\"");  // name of the command
     for (i = 0; i < length; i++) {
         sprintf(cmd + strlen(cmd), "%02x", buffer[i]);
-    }  // add the characters in hex format
+    }                                      // add the characters in hex format
     sprintf(cmd + strlen(cmd), "\"\r\n");  // end of command
     time_ret = at_send_check_response(cmd, (char *) "Done", timeout, NULL);
     return time_ret;
@@ -1481,7 +1481,7 @@ short LoRaE5Class::receivePacketP2PMode(unsigned char *buffer, short length, sho
 
 /*return transmition time in ms*/
 float LoRaE5Class::getTransmissionTime(unsigned int payload_size) {
-    return (txHead_time + ((float) (payload_size) * 8 * 1000 / bitRate));
+    return (txHead_time + ((float) (payload_size) *8 * 1000 / bitRate));
 }
 
 float LoRaE5Class::getTransmissionPower(unsigned int payload_size, float tx_period_s) {
