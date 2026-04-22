@@ -30,7 +30,7 @@ void HAMAMATSU_SPECTRAL::init_gpios(int mode) {
 }
 
 
-void HAMAMATSU_SPECTRAL::readSpectrometer(int16_t *buff, uint32_t itime) {
+void HAMAMATSU_SPECTRAL::readSpectrometer(uint16_t *buff, uint32_t itime) {
 
     const uint64_t delayTime = 1;  // delay time in us
 
@@ -71,7 +71,7 @@ void HAMAMATSU_SPECTRAL::integrate(const uint64_t delayTime, const uint32_t inte
     }
 }
 
-void HAMAMATSU_SPECTRAL::readData(int16_t *buff, uint64_t delayTime) {
+void HAMAMATSU_SPECTRAL::readData(uint16_t *buff, uint64_t delayTime) {
     // One more clock pulse before the actual read
     gpio_put(CLK_pin, 1);
     sleep_us(delayTime);
@@ -87,12 +87,7 @@ void HAMAMATSU_SPECTRAL::readData(int16_t *buff, uint64_t delayTime) {
             adc_select_input(adc_input);
             buff[i] = adc_read();
         } else if (mode == ADC_EXT) {
-            ads8354->read_values(&valueA, &valueB);
-            if (ads_channel == CHANNEL_A) {
-                buff[i] = valueA;
-            } else if (ads_channel == CHANNEL_B) {
-                buff[i] = valueB;
-            }
+            buff[i] = _external_adc->read();
         }
 
         gpio_put(CLK_pin, 1);
@@ -117,17 +112,16 @@ void HAMAMATSU_SPECTRAL::readData(int16_t *buff, uint64_t delayTime) {
     sleep_us(delayTime);
 }
 
-void HAMAMATSU_SPECTRAL::read(int16_t *buff, uint32_t itime) {
+void HAMAMATSU_SPECTRAL::read(uint16_t *buff, uint32_t itime) {
     readSpectrometer(buff, 0);
     readSpectrometer(buff, itime);
 }
 
-void HAMAMATSU_SPECTRAL::add_ads(ADS8354 *ads, int channel) {
-    ads8354 = ads;
-    ads_channel = channel;
+void HAMAMATSU_SPECTRAL::add_external_adc(iExternalADC *external_adc) {
+    _external_adc = external_adc;
 }
 
-void HAMAMATSU_SPECTRAL::get_wavelenghts(double *wave_array) {
+void HAMAMATSU_SPECTRAL::get_wavelengths(double *wave_array) {
     for (int i = 1; i <= SPEC_CHANNELS; i++) {
         wave_array[i - 1] = parametersSensors[0] + parametersSensors[1] * i +
                             parametersSensors[2] * pow(i, 2) + parametersSensors[3] * pow(i, 3) +
@@ -138,8 +132,13 @@ void HAMAMATSU_SPECTRAL::get_wavelenghts(double *wave_array) {
 
 HAMAMATSU_SPECTRAL::HAMAMATSU_SPECTRAL(int EOS_pin_, int TRG_pin_, int STR_pin_, int CLK_pin_,
                                        int video_pin_, double parameters_[6], int mode_)
-    : EOS_pin(EOS_pin_), TRG_pin(TRG_pin_), STR_pin(STR_pin_), CLK_pin(CLK_pin_),
-      video_pin(video_pin_), mode(mode_), ads8354(nullptr), ads_channel(-1) {
+    : _external_adc(nullptr) {
+    EOS_pin = EOS_pin_;
+    TRG_pin = TRG_pin_;
+    STR_pin = STR_pin_;
+    CLK_pin = CLK_pin_;
+    video_pin = video_pin_;
+    mode = mode_;
 
     for (int i = 0; i < 6; i++) {
         parametersSensors[i] = parameters_[i];
