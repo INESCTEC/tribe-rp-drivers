@@ -30,7 +30,10 @@ PROJECT_NAME <br />
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|__ src <br />
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|__ include <br />
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|__ CMakeLists.txt <br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|__ pico_sdk_import.cmake <br />
 &nbsp;&nbsp;&nbsp;&nbsp;|__ hardware <br />
+ 
+`pico_sdk_import.cmake` was copied from `pico-sdk/external/` as required by the Pico SDK build system.
 
 To use this repository in your project, add it as a submodule of the repository that you’re working on, inside extern folder.
 
