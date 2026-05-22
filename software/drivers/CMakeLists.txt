@@ -620,7 +620,58 @@ install(TARGETS rp_agrolib_ad5680
         RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin
         )
 
+###########################################################################
+#MLX90641 - Thermal Camera
+###########################################################################
 
+add_library(rp_agrolib_mlx90641_thermal
+        src/rp_agrolib_mlx90641_thermal.cpp
+        include/rp_agrolib_mlx90641_thermal.h)
+
+pico_enable_stdio_usb(rp_agrolib_mlx90641_thermal 1)
+pico_enable_stdio_uart(rp_agrolib_mlx90641_thermal  0)
+
+target_link_libraries(rp_agrolib_mlx90641_thermal PUBLIC
+        pico_stdlib
+        rp_agrolib_i2c
+        
+        )
+
+target_include_directories(rp_agrolib_mlx90641_thermal PUBLIC
+		${CMAKE_CURRENT_SOURCE_DIR}/include
+		)
+
+install(TARGETS rp_agrolib_mlx90641_thermal
+        ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin
+        )
+###########################################################################
+#VL6180X - Time-of-Flight Sensor
+###########################################################################
+
+add_library(rp_agrolib_vl6180x
+        src/rp_agrolib_vl6180x.cpp
+        include/rp_agrolib_vl6180x.h)
+
+pico_enable_stdio_usb(rp_agrolib_vl6180x 1)
+pico_enable_stdio_uart(rp_agrolib_vl6180x  0)
+
+target_link_libraries(rp_agrolib_vl6180x PUBLIC
+        pico_stdlib
+        rp_agrolib_i2c
+        
+        )
+
+target_include_directories(rp_agrolib_vl6180x PUBLIC
+		${CMAKE_CURRENT_SOURCE_DIR}/include
+		)
+
+install(TARGETS rp_agrolib_vl6180x
+        ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin
+        )
 ###########################################################################
 # COMMON - To all drivers
 ###########################################################################

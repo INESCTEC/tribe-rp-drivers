@@ -503,3 +503,47 @@ target_link_libraries(rp_vl53l4cd_tof_i2c
         rp_agrolib_i2c
         vl53l4cd_uld_api
         pico_stdlib)
+
+##########################################################################
+# MLX90641 thermal sensor example
+##########################################################################
+
+add_executable(rp_mlx90641_heatmap src/rp_mlx90641_heatmap.cpp)
+
+target_include_directories(rp_mlx90641_heatmap
+        PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../drivers/include
+        PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../interfaces/include)
+
+pico_enable_stdio_usb(rp_mlx90641_heatmap 1)
+pico_enable_stdio_uart(rp_mlx90641_heatmap 0)
+
+pico_add_extra_outputs(rp_mlx90641_heatmap)
+
+target_link_libraries(rp_mlx90641_heatmap
+        pico_stdlib
+        hardware_i2c
+        rp_agrolib_i2c
+        rp_agrolib_mlx90641_thermal
+        )
+
+##########################################################################
+# VL6180X proximity sensor example- range mesurement
+##########################################################################
+
+add_executable(rp_vl6180x_tof src/rp_vl6180x_tof.cpp)
+
+target_include_directories(rp_vl6180x_tof
+        PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../drivers/include
+        PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../interfaces/include)
+
+pico_enable_stdio_usb(rp_vl6180x_tof 1)
+pico_enable_stdio_uart(rp_vl6180x_tof 0)
+
+pico_add_extra_outputs(rp_vl6180x_tof)
+
+target_link_libraries(rp_vl6180x_tof
+        pico_stdlib
+        hardware_i2c
+        rp_agrolib_i2c
+        rp_agrolib_vl6180x
+        )
