@@ -672,6 +672,34 @@ install(TARGETS rp_agrolib_vl6180x
         LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
         RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin
         )
+        ###########################################################################
+#MLX90641 - Thermal Camera MELEXIS OFICIAL LIBRARY
+###########################################################################
+
+add_library(rp_agrolib_mlx90641_melexis
+        src/rp_agrolib_mlx90641_melexis.cpp
+        include/rp_agrolib_mlx90641_melexis.h)
+
+
+pico_enable_stdio_usb(rp_agrolib_mlx90641_melexis 1)
+pico_enable_stdio_uart(rp_agrolib_mlx90641_melexis  0)
+
+target_link_libraries(rp_agrolib_mlx90641_melexis PUBLIC
+        pico_stdlib
+        rp_agrolib_i2c
+        # Outras bibliotecas necessárias
+        )
+
+target_include_directories(rp_agrolib_mlx90641_melexis PUBLIC
+		${CMAKE_CURRENT_SOURCE_DIR}/include
+		)
+
+install(TARGETS rp_agrolib_mlx90641_melexis
+        ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin
+        )
+
 ###########################################################################
 # COMMON - To all drivers
 ###########################################################################

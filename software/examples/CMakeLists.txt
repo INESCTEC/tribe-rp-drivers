@@ -547,3 +547,24 @@ target_link_libraries(rp_vl6180x_tof
         rp_agrolib_i2c
         rp_agrolib_vl6180x
         )
+##########################################################################
+# MLX90641 OFFICIAL
+##########################################################################
+
+add_executable(rp_mlx90641 src/rp_mlx90641.cpp)
+
+target_include_directories(rp_mlx90641
+        PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../drivers/include
+        PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../interfaces/include)
+
+pico_enable_stdio_usb(rp_mlx90641 1)
+pico_enable_stdio_uart(rp_mlx90641 0)
+
+pico_add_extra_outputs(rp_mlx90641)
+
+target_link_libraries(rp_mlx90641
+        pico_stdlib
+        hardware_i2c
+        rp_agrolib_i2c
+        rp_agrolib_mlx90641_melexis
+        )
