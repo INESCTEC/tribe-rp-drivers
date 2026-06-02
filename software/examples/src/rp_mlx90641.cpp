@@ -12,7 +12,7 @@
 #define SCL_PIN 15
 #define MLX_I2C_ADDR 0x33
 
-#define REFRESH_RATE 0x03       // 0x03 = 4 Hz
+#define REFRESH_RATE 0x03       // 0x04 = 8 Hz
 #define EMISSIVITY 0.98         
 #define NUM_FRAMES_AVG 20
 
@@ -21,9 +21,9 @@
 int main() {
     stdio_init_all();
     
-    /*while (!stdio_usb_connected()) {
+    while (!stdio_usb_connected()) {
         sleep_ms(100);
-    }*/
+    }
     sleep_ms(1000);
     
     
@@ -34,8 +34,11 @@ int main() {
     gpio_pull_up(SDA_PIN);
     gpio_pull_up(SCL_PIN);
 
-    MLX90641_SetRefreshRate(MLX_I2C_ADDR, REFRESH_RATE);
-    //printf("Taxa de atualizacao configurada para 0x%02X\n", REFRESH_RATE);
+    int refresh_rate_status = MLX90641_SetRefreshRate(MLX_I2C_ADDR, REFRESH_RATE);
+    if (refresh_rate_status != 0) {
+        printf("Erro ao configurar taxa de atualização: %d\n", refresh_rate_status);
+    }
+    printf("Taxa de atualizacao configurada para 0x%02X\n", REFRESH_RATE);
     
     sleep_ms(580); // Power on reset delay
 
@@ -46,15 +49,16 @@ int main() {
     int status = MLX90641_DumpEE(MLX_I2C_ADDR, eeMLX90641);
     if (status != 0) {
         printf("Fatal error, EEPROM data corrupted or hamming code error: %d\n", status);
-        while (1) sleep_ms(1000);
+        return -1;
     }
 
     status = MLX90641_ExtractParameters(eeMLX90641, &mlx90641_params);
     if (status != 0) {
         printf("AVISO/ERRO: Problema ao extrair parametros (Erro: %d)\n", status);
+        return -1;
     }
 
-    //printf("Setup Concluido. A iniciar streaming de dados termicos...\n\n");
+    printf("Setup Concluido. A iniciar streaming...\n\n");
 
     
     uint16_t frameData[242]; // Buffer for raw foton data (192 pixels + metadata)
@@ -95,24 +99,24 @@ int main() {
             for (int i = 0; i < 192; i++) {
                 printf("%.2f", frameAccum[i] / NUM_FRAMES_AVG);
                 if (i < 191) printf(",");
-                else printf("Fim de Frame\n");
+                else printf(" Fim de Frame\n");
             }
         // reset
         for (int i = 0; i < 192; i++) frameAccum[i] = 0;
         Ta_accum = 0;
         frameCount = 0;
         }
-        /* printf("%.2f,", Ta);
+        /*printf("%.2f,", Ta);
             for (int i = 0; i < 192; i++) {
                 printf("%.2f", mlx90641To[i]);
             if (i < 191) {
                 printf(",");
             }else{
-                printf("\n");
+                printf(" Fim de Frame\n");
             }
     }*/
+         
         
-
 }
     return 0;
 }

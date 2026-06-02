@@ -17,6 +17,7 @@
 
 #include "../include/rp_agrolib_mlx90641_melexis.h"
 #include <math.h>
+#include <stdio.h>
 
 
 
@@ -40,12 +41,12 @@ int MLX90641_HammingDecode(uint16_t *eeData);
 //------------------------------------------------------------------------------
 
  
-int MLX9064x_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16_t nMemAddressRead, uint16_t *data) {
+int MLX9064x_I2CRead_non_blocking(uint8_t slaveAddr, uint16_t startAddress, uint16_t nMemAddressRead, uint16_t *data) {
     uint8_t cmd[2] = {(uint8_t)(startAddress >> 8), (uint8_t)(startAddress & 0xFF)};
 
     uint timeout_write_us = (2 * 100) + 5000; // Timeout in microseconds
 
-    int return_write = i2c_write_timeout_us(I2C_PORT, slaveAddr, cmd, 2, true,timeout_write_us );
+    int return_write = i2c_write_timeout_us(I2C_PORT, slaveAddr, cmd, 2, true, timeout_write_us );
     if (return_write == PICO_ERROR_GENERIC || return_write == PICO_ERROR_TIMEOUT) {
         printf("I2C write error: %d\n", return_write);
         return -1;
@@ -66,8 +67,31 @@ int MLX9064x_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16_t nMemAddr
     }
     return 0;
 }
+int MLX9064x_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16_t nMemAddressRead, uint16_t *data) {
+    uint8_t cmd[2] = {(uint8_t)(startAddress >> 8), (uint8_t)(startAddress & 0xFF)};
 
-int MLX9064x_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress, uint16_t data) {
+
+    int return_write = i2c_write_blocking(I2C_PORT, slaveAddr, cmd, 2, true);
+    if (return_write == PICO_ERROR_GENERIC) {
+        printf("I2C write error: %d\n", return_write);
+        return -1;
+    }
+    int return_read = i2c_read_blocking(I2C_PORT, slaveAddr, (uint8_t*)data, nMemAddressRead * 2, false);
+    if (return_read == PICO_ERROR_GENERIC) {
+        printf("I2C read error: %d\n", return_read);
+        return -1;
+    }
+    
+    for(int i = 0; i < nMemAddressRead; i++){
+        uint8_t *p = (uint8_t*)&data[i];
+        uint8_t temp = p[0];
+        p[0] = p[1];
+        p[1] = temp;
+    }
+    return 0;
+}
+
+int MLX9064x_I2CWrite_non_blocking(uint8_t slaveAddr, uint16_t writeAddress, uint16_t data) {
     
 
     uint8_t cmd[4] = {
@@ -83,12 +107,25 @@ int MLX9064x_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress, uint16_t data) {
     }
     return 0;
 }
+int MLX9064x_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress, uint16_t data) {
+    
+    uint8_t cmd[4] = {
+        (uint8_t)(writeAddress >> 8), (uint8_t)(writeAddress & 0xFF),
+        (uint8_t)(data >> 8), (uint8_t)(data & 0xFF)
+    };
+    int return_write = i2c_write_blocking(I2C_PORT, slaveAddr, cmd, 4, false);
+    if (return_write == PICO_ERROR_GENERIC) {
+        printf("I2C write error: %d\n", return_write);
+        return -1;
+    }
+    return 0;
+}
 //------------------------------------------------------------------------------
   
 int MLX90641_DumpEE(uint8_t slaveAddr, uint16_t *eeData)
 {
      int error = 1;
-     error = MLX9064x_I2CRead(slaveAddr, 0x2400, 832, eeData);
+     error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x2400, 832, eeData);
      if (error == 0)
      {
         error = MLX90641_HammingDecode(eeData);  
@@ -245,7 +282,7 @@ int MLX90641_GetFrameData(uint8_t slaveAddr, uint16_t *frameData)
     dataReady = 0;
     while(dataReady == 0)
     {
-        error = MLX9064x_I2CRead(slaveAddr, 0x8000, 1, &statusRegister);
+        error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x8000, 1, &statusRegister);
         if(error != 0)
         {
             return error;
@@ -264,32 +301,32 @@ int MLX90641_GetFrameData(uint8_t slaveAddr, uint16_t *frameData)
             
         if(subPage == 0)
         { 
-            error = MLX9064x_I2CRead(slaveAddr, 0x0400, 32, frameData); 
+            error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x0400, 32, frameData); 
             if(error != 0)
             {
                 return error;
             }
-            error = MLX9064x_I2CRead(slaveAddr, 0x0440, 32, frameData+32); 
+            error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x0440, 32, frameData+32); 
             if(error != 0)
             {
                 return error;
             }
-            error = MLX9064x_I2CRead(slaveAddr, 0x0480, 32, frameData+64); 
+            error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x0480, 32, frameData+64); 
             if(error != 0)
             {
                 return error;
             }
-            error = MLX9064x_I2CRead(slaveAddr, 0x04C0, 32, frameData+96); 
+            error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x04C0, 32, frameData+96); 
             if(error != 0)
             {
                 return error;
             }
-            error = MLX9064x_I2CRead(slaveAddr, 0x0500, 32, frameData+128); 
+            error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x0500, 32, frameData+128); 
             if(error != 0)
             {
                 return error;
             }
-            error = MLX9064x_I2CRead(slaveAddr, 0x0540, 32, frameData+160); 
+            error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x0540, 32, frameData+160); 
             if(error != 0)
             {
                 return error;
@@ -297,45 +334,45 @@ int MLX90641_GetFrameData(uint8_t slaveAddr, uint16_t *frameData)
         }    
         else
         {
-             error = MLX9064x_I2CRead(slaveAddr, 0x0420, 32, frameData); 
+             error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x0420, 32, frameData); 
             if(error != 0)
             {
                 return error;
             }
-            error = MLX9064x_I2CRead(slaveAddr, 0x0460, 32, frameData+32); 
+            error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x0460, 32, frameData+32); 
             if(error != 0)
             {
                 return error;
             }
-            error = MLX9064x_I2CRead(slaveAddr, 0x04A0, 32, frameData+64); 
+            error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x04A0, 32, frameData+64); 
             if(error != 0)
             {
                 return error;
             }
-            error = MLX9064x_I2CRead(slaveAddr, 0x04E0, 32, frameData+96); 
+            error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x04E0, 32, frameData+96); 
             if(error != 0)
             {
                 return error;
             }
-            error = MLX9064x_I2CRead(slaveAddr, 0x0520, 32, frameData+128); 
+            error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x0520, 32, frameData+128); 
             if(error != 0)
             {
                 return error;
             }
-            error = MLX9064x_I2CRead(slaveAddr, 0x0560, 32, frameData+160); 
+            error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x0560, 32, frameData+160); 
             if(error != 0)
             {
                 return error;
             }
         }   
         
-        error = MLX9064x_I2CRead(slaveAddr, 0x0580, 48, frameData+192); 
+        error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x0580, 48, frameData+192); 
         if(error != 0)
         {
             return error;
         }            
                    
-        error = MLX9064x_I2CRead(slaveAddr, 0x8000, 1, &statusRegister);
+        error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x8000, 1, &statusRegister);
         if(error != 0)
         {
             return error;
@@ -350,7 +387,7 @@ int MLX90641_GetFrameData(uint8_t slaveAddr, uint16_t *frameData)
         return -8;
     }    
     
-    error = MLX9064x_I2CRead(slaveAddr, 0x800D, 1, &controlRegister1);
+    error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x800D, 1, &controlRegister1);
     
     frameData[240] = controlRegister1;
     frameData[241] = statusRegister & 0x0001;
@@ -401,7 +438,7 @@ int MLX90641_SetResolution(uint8_t slaveAddr, uint8_t resolution)
     
     value = (resolution & 0x03) << 10;
     
-    error = MLX9064x_I2CRead(slaveAddr, 0x800D, 1, &controlRegister1);
+    error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x800D, 1, &controlRegister1);
     
     if(error == 0)
     {
@@ -420,7 +457,7 @@ int MLX90641_GetCurResolution(uint8_t slaveAddr)
     int resolutionRAM;
     int error;
     
-    error = MLX9064x_I2CRead(slaveAddr, 0x800D, 1, &controlRegister1);
+    error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x800D, 1, &controlRegister1);
     if(error != 0)
     {
         return error;
@@ -440,7 +477,7 @@ int MLX90641_SetRefreshRate(uint8_t slaveAddr, uint8_t refreshRate)
     
     value = (refreshRate & 0x07)<<7;
     
-    error = MLX9064x_I2CRead(slaveAddr, 0x800D, 1, &controlRegister1);
+    error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x800D, 1, &controlRegister1);
     if(error == 0)
     {
         value = (controlRegister1 & 0xFC7F) | value;
@@ -458,7 +495,7 @@ int MLX90641_GetRefreshRate(uint8_t slaveAddr)
     int refreshRate;
     int error;
     
-    error = MLX9064x_I2CRead(slaveAddr, 0x800D, 1, &controlRegister1);
+    error = MLX9064x_I2CRead_non_blocking(slaveAddr, 0x800D, 1, &controlRegister1);
     if(error != 0)
     {
         return error;
