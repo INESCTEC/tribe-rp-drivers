@@ -43,16 +43,21 @@ int MLX90641_HammingDecode(uint16_t *eeData);
 int MLX9064x_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16_t nMemAddressRead, uint16_t *data) {
     uint8_t cmd[2] = {(uint8_t)(startAddress >> 8), (uint8_t)(startAddress & 0xFF)};
 
-    if (i2c_write_blocking(I2C_PORT, slaveAddr, cmd, 2, true) == PICO_ERROR_GENERIC) {
+    uint timeout_write_us = (2 * 100) + 5000; // Timeout in microseconds
+
+    int return_write = i2c_write_timeout_us(I2C_PORT, slaveAddr, cmd, 2, true,timeout_write_us );
+    if (return_write == PICO_ERROR_GENERIC || return_write == PICO_ERROR_TIMEOUT) {
+        printf("I2C write error: %d\n", return_write);
+        return -1;
+    }
+    size_t read_len = nMemAddressRead * 2;
+    uint timeout_read_us = (read_len * 100) + 5000;
+    int return_read = i2c_read_timeout_us(I2C_PORT, slaveAddr, (uint8_t*)data, nMemAddressRead * 2, false, timeout_read_us);
+    if (return_read == PICO_ERROR_GENERIC || return_read == PICO_ERROR_TIMEOUT) {
+        printf("I2C read error: %d\n", return_read);
         return -1;
     }
     
-
-    if (i2c_read_blocking(I2C_PORT, slaveAddr, (uint8_t*)data, nMemAddressRead * 2, false) == PICO_ERROR_GENERIC) {
-        return -1;
-    }
-    
-
     for(int i = 0; i < nMemAddressRead; i++){
         uint8_t *p = (uint8_t*)&data[i];
         uint8_t temp = p[0];
@@ -63,11 +68,17 @@ int MLX9064x_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16_t nMemAddr
 }
 
 int MLX9064x_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress, uint16_t data) {
+    
+
     uint8_t cmd[4] = {
         (uint8_t)(writeAddress >> 8), (uint8_t)(writeAddress & 0xFF),
         (uint8_t)(data >> 8), (uint8_t)(data & 0xFF)
     };
-    if (i2c_write_blocking(I2C_PORT, slaveAddr, cmd, 4, false) == PICO_ERROR_GENERIC) {
+    size_t len = 4;
+    uint timeout_write_us = (len*100) + 5000; // Timeout in microseconds
+    int return_write = i2c_write_timeout_us(I2C_PORT, slaveAddr, cmd, 4, false, timeout_write_us);
+    if (return_write == PICO_ERROR_GENERIC || return_write == PICO_ERROR_TIMEOUT) {
+        printf("I2C write error: %d\n", return_write);
         return -1;
     }
     return 0;
