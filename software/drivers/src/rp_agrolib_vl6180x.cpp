@@ -28,13 +28,13 @@ static const uint8_t kDefaultCrosstalkValidHeight = 20;
 
 // -------------------- I2C helpers --------------------
 
-static picovl6180x_status_t write_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t value) {
+ picovl6180x_status_t write_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t value) {
     uint8_t buf[3] = { (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF), value };
     int rc = i2c_write_blocking(dev->i2c, dev->addr, buf, 3, false);
     return (rc == 3) ? PICOVL6180X_OK : PICOVL6180X_ERR_I2C;
 }
 
-static picovl6180x_status_t write_reg16(picovl6180x_t *dev, uint16_t reg, uint16_t value) {
+ picovl6180x_status_t write_reg16(picovl6180x_t *dev, uint16_t reg, uint16_t value) {
     uint8_t buf[4] = {
         (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF),
         (uint8_t)(value >> 8), (uint8_t)(value & 0xFF)
@@ -42,8 +42,7 @@ static picovl6180x_status_t write_reg16(picovl6180x_t *dev, uint16_t reg, uint16
     int rc = i2c_write_blocking(dev->i2c, dev->addr, buf, 4, false);
     return (rc == 4) ? PICOVL6180X_OK : PICOVL6180X_ERR_I2C;
 }
-
-static picovl6180x_status_t read_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t *out) {
+picovl6180x_status_t read_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t *out) {
     uint8_t addr[2] = { (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF) };
     int rc = i2c_write_blocking(dev->i2c, dev->addr, addr, 2, true);
     if (rc != 2) return PICOVL6180X_ERR_I2C;
@@ -52,7 +51,7 @@ static picovl6180x_status_t read_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t 
     return (rc == 1) ? PICOVL6180X_OK : PICOVL6180X_ERR_I2C;
 }
 
-static picovl6180x_status_t read_reg16(picovl6180x_t *dev, uint16_t reg, uint16_t *out) {
+ picovl6180x_status_t read_reg16(picovl6180x_t *dev, uint16_t reg, uint16_t *out) {
     uint8_t addr[2] = { (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF) };
     uint8_t data[2];
 
@@ -139,23 +138,25 @@ picovl6180x_status_t picovl6180x_read_return_rate(picovl6180x_t *dev, float *mcp
     return rc;
 }
 
-picovl6180x_status_t picovl6180x_calculate_snr(picovl6180x_t *dev, float *mcps_out){
-uint32_t return_signal;
-    //0x06C 32bit register for the range return signal count / 0x074 raneg return ambient count 32bits
-
-
-}
-picovl6180x_status_t picovl6180x_set_crosstalk_compensation(picovl6180x_t *dev, uint16_t value){
-    picovl6180x_status_t rc = write_reg16(dev, 0x001E, value);
-    if (rc == PICOVL6180X_OK)
-    {
-        printf("Crosstalk compensation set to %d.\n", value);
-        return rc;
-    }else
-    {
+picovl6180x_status_t picovl6180x_set_crosstalk_compensation(picovl6180x_t *dev, uint16_t compensation_value, uint8_t valid_height) {
+    
+    // 1. Escrever o valor de compensação do Crosstalk
+    picovl6180x_status_t rc = write_reg16(dev, 0x001E, compensation_value);
+    if (rc != PICOVL6180X_OK) {
         printf("Failed to set crosstalk compensation. Status code: %d\n", rc);
         return rc;
-    } 
+    }
+    printf("Crosstalk compensation set to %d.\n", compensation_value);
+
+
+    picovl6180x_status_t rc2 = write_reg8(dev, PICOVL6180X_REG_SYSRANGE__CROSSTALK_VALID_HEIGHT, valid_height);
+    if (rc2 != PICOVL6180X_OK) {
+        printf("Failed to set crosstalk valid height. Status code: %d\n", rc2);
+        return rc2; 
+    }
+    printf("Crosstalk valid height set to %d.\n", valid_height);
+
+    return PICOVL6180X_OK;
 }
 // -------------------- Bring-up --------------------
 

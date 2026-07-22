@@ -58,8 +58,6 @@ int main() {
         return -1;
     }
 
-    printf("Setup Concluido. A iniciar streaming...\n\n");
-
     
     uint16_t frameData[242]; // Buffer for raw foton data (192 pixels + metadata)
     float mlx90641To[192];   // Final output array for temperatures in Celsius
@@ -80,7 +78,7 @@ int main() {
         float Ta = MLX90641_GetTa(frameData, &mlx90641_params);
         float Vdd = MLX90641_GetVdd(frameData, &mlx90641_params);
         printf("Ta: %.2f ºC, Vdd: %.2f V\n", Ta, Vdd);
-        // assumimos que é igual à Ta (menos ~8C em céu limpo, ou igual dentro da estufa)
+        // this value can be determined through experiments
         float Tr = Ta; 
 
         MLX90641_CalculateTo(frameData, &mlx90641_params, EMISSIVITY, Tr, mlx90641To);

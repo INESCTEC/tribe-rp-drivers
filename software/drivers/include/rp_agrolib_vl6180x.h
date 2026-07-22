@@ -67,35 +67,38 @@ typedef struct {
 
 // subset of registers 
 typedef enum {
-    PICOVL6180X_REG_SYSTEM__INTERRUPT_CLEAR          = 0x0015,
-    PICOVL6180X_REG_SYSTEM__FRESH_OUT_OF_RESET       = 0x0016,
+    PICOVL6180X_REG_SYSTEM__INTERRUPT_CLEAR            = 0x0015,
+    PICOVL6180X_REG_SYSTEM__FRESH_OUT_OF_RESET         = 0x0016,
 
-    PICOVL6180X_REG_SYSRANGE__START                  = 0x0018,
-    PICOVL6180X_REG_SYSRANGE__CROSSTALK_VALID_HEIGHT = 0x0021,
-    PICOVL6180X_REG_SYSRANGE__PART_TO_PART_OFFSET    = 0x0024,
-    PICOVL6180X_REG_SYSRANGE__RANGE_CHECK_ENABLES    = 0x002D,
+    PICOVL6180X_REG_SYSRANGE__START                    = 0x0018,
+    PICOVL6180X_REG_SYSRANGE__CROSSTALK_VALID_HEIGHT   = 0x0021,
+    PICOVL6180X_REG_SYSRANGE__PART_TO_PART_OFFSET      = 0x0024,
+    PICOVL6180X_REG_SYSRANGE__RANGE_CHECK_ENABLES      = 0x002D,
+    PICOVL6180X_REG_SYSRANGE__INTERMEASUREMENT_PERIOD  = 0x01B,
+    PICOVL6180X_REG_SYSRANGE__MAX_CONVERGENCE_TIME     = 0x01C,
 
-    PICOVL6180X_REG_SYSALS__START                    = 0x0038,
-    PICOVL6180X_REG_SYSALS__ANALOGUE_GAIN            = 0x003F,
-    PICOVL6180X_REG_SYSALS__INTEGRATION_PERIOD       = 0x0040,
 
-    PICOVL6180X_REG_RESULT__RANGE_STATUS             = 0x004D,
-    PICOVL6180X_REG_RESULT__INTERRUPT_STATUS_GPIO    = 0x004F,
-    PICOVL6180X_REG_RESULT__ALS_VAL                  = 0x0050,
-    PICOVL6180X_REG_RESULT__RANGE_VAL                = 0x0062,
+    PICOVL6180X_REG_SYSALS__START                      = 0x0038,
+    PICOVL6180X_REG_SYSALS__ANALOGUE_GAIN              = 0x003F,
+    PICOVL6180X_REG_SYSALS__INTEGRATION_PERIOD         = 0x0040,
 
-    PICOVL6180X_REG_RANGE_SCALER                     = 0x0096,
+    PICOVL6180X_REG_RESULT__RANGE_STATUS               = 0x004D,
+    PICOVL6180X_REG_RESULT__RANGE_VAL                  = 0x0062,
+    PICOVL6180X_REG_RESULT__INTERRUPT_STATUS_GPIO      = 0x004F,
+    PICOVL6180X_REG_RESULT__ALS_VAL                    = 0x0050,
+    
+    PICOVL6180X_REG_RANGE_SCALER                       = 0x0096,
 
-    PICOVL6180X_REG_I2C_SLAVE__DEVICE_ADDRESS        = 0x0212,
+    PICOVL6180X_REG_I2C_SLAVE__DEVICE_ADDRESS          = 0x0212,
 } picovl6180x_reg_t;
 //Write 8-bit value to register
-static picovl6180x_status_t write_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t val); 
+picovl6180x_status_t write_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t val); 
 //Write 16-bit value to register
-static picovl6180x_status_t write_reg16(picovl6180x_t *dev, uint16_t reg, uint16_t val);
+ picovl6180x_status_t write_reg16(picovl6180x_t *dev, uint16_t reg, uint16_t val);
 //Read 8-bit value from register
-static picovl6180x_status_t read_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t *val_out);
+ picovl6180x_status_t read_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t *val_out);
 //Read 16-bit value from registerr
-static picovl6180x_status_t read_reg16(picovl6180x_t *dev, uint16_t reg, uint16_t *val_out);
+picovl6180x_status_t read_reg16(picovl6180x_t *dev, uint16_t reg, uint16_t *val_out);
 // -------------------- Bring-up --------------------
 
 //Debug to check Return Rate, SNR
@@ -130,7 +133,7 @@ picovl6180x_status_t picovl6180x_set_als_integration_ms(picovl6180x_t *dev, uint
 picovl6180x_status_t picovl6180x_get_als_integration_ms(picovl6180x_t *dev, uint16_t *ms);
 picovl6180x_status_t picovl6180x_set_snr_check(picovl6180x_t *dev, bool enable);
 picovl6180x_status_t picovl6180x_set_range_ignore(picovl6180x_t *dev, bool enable);
-picovl6180x_status_t picovl6180x_set_crosstalk_compensation(picovl6180x_t *dev, uint16_t value);
+picovl6180x_status_t picovl6180x_set_crosstalk_compensation(picovl6180x_t *dev, uint16_t compensation_value, uint8_t valid_height);
 
 // -------------------- Reads --------------------
 //

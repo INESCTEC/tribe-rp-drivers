@@ -568,3 +568,48 @@ target_link_libraries(rp_mlx90641
         rp_agrolib_i2c
         rp_agrolib_mlx90641_melexis
         )
+
+##########################################################################
+# VL6180X proximity sensor example- range mesurement
+##########################################################################
+
+add_executable(rp_vl6180x_tof src/rp_vl6180x_tof.cpp)
+
+target_include_directories(rp_vl6180x_tof
+        PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../drivers/include
+        PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../interfaces/include)
+
+pico_enable_stdio_usb(rp_vl6180x_tof 1)
+pico_enable_stdio_uart(rp_vl6180x_tof 0)
+
+pico_add_extra_outputs(rp_vl6180x_tof)
+
+target_link_libraries(rp_vl6180x_tof
+        pico_stdlib
+        hardware_i2c
+        rp_agrolib_i2c
+        rp_agrolib_vl6180x
+        )
+
+##########################################################################
+# MLX90641 + VL6180X 
+##########################################################################
+
+add_executable(rp_vl6180_w_mlx90641 src/rp_vl6180_w_mlx90641.cpp)
+
+target_include_directories(rp_vl6180_w_mlx90641
+        PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../drivers/include
+        PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../interfaces/include)
+
+pico_enable_stdio_usb(rp_vl6180_w_mlx90641 1)
+pico_enable_stdio_uart(rp_vl6180_w_mlx90641 0)
+
+pico_add_extra_outputs(rp_vl6180_w_mlx90641)
+
+target_link_libraries(rp_vl6180_w_mlx90641
+        pico_stdlib
+        hardware_i2c
+        rp_agrolib_i2c
+        rp_agrolib_vl6180x
+        rp_agrolib_mlx90641_melexis
+        )
