@@ -30,7 +30,7 @@ static const uint8_t kDefaultCrosstalkValidHeight = 20;
 
  picovl6180x_status_t write_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t value) {
     uint8_t buf[3] = { (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF), value };
-    int rc = i2c_write_blocking(dev->i2c, dev->addr, buf, 3, false);
+    int rc = i2c_write_timeout_us(dev->i2c, dev->addr, buf, 3, false, 1000);
     return (rc == 3) ? PICOVL6180X_OK : PICOVL6180X_ERR_I2C;
 }
 
@@ -39,15 +39,15 @@ static const uint8_t kDefaultCrosstalkValidHeight = 20;
         (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF),
         (uint8_t)(value >> 8), (uint8_t)(value & 0xFF)
     };
-    int rc = i2c_write_blocking(dev->i2c, dev->addr, buf, 4, false);
+    int rc = i2c_write_timeout_us(dev->i2c, dev->addr, buf, 4, false, 1500);
     return (rc == 4) ? PICOVL6180X_OK : PICOVL6180X_ERR_I2C;
 }
 picovl6180x_status_t read_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t *out) {
     uint8_t addr[2] = { (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF) };
-    int rc = i2c_write_blocking(dev->i2c, dev->addr, addr, 2, true);
+    int rc = i2c_write_timeout_us(dev->i2c, dev->addr, addr, 2, true, 1000);
     if (rc != 2) return PICOVL6180X_ERR_I2C;
 
-    rc = i2c_read_blocking(dev->i2c, dev->addr, out, 1, false);
+    rc = i2c_read_timeout_us(dev->i2c, dev->addr, out, 1, false, 1000);
     return (rc == 1) ? PICOVL6180X_OK : PICOVL6180X_ERR_I2C;
 }
 
@@ -55,10 +55,10 @@ picovl6180x_status_t read_reg8(picovl6180x_t *dev, uint16_t reg, uint8_t *out) {
     uint8_t addr[2] = { (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF) };
     uint8_t data[2];
 
-    int rc = i2c_write_blocking(dev->i2c, dev->addr, addr, 2, true);
+    int rc = i2c_write_timeout_us(dev->i2c, dev->addr, addr, 2, true, 1000);
     if (rc != 2) return PICOVL6180X_ERR_I2C;
 
-    rc = i2c_read_blocking(dev->i2c, dev->addr, data, 2, false);
+    rc = i2c_read_timeout_us(dev->i2c, dev->addr, data, 2, false, 1000);
     if (rc != 2) return PICOVL6180X_ERR_I2C;
 
     *out = ((uint16_t)data[0] << 8) | (uint16_t)data[1];
