@@ -1257,13 +1257,13 @@ int MLX90641_ExtractDeviatingPixels(uint16_t *eeData, paramsMLX90641 *mlx90641)
 
     int warn = 0;
     
-    for(pixCnt = 0; pixCnt<3; pixCnt++)
+    for(pixCnt = 0; pixCnt < 2; pixCnt++)
     {
         mlx90641->brokenPixels[pixCnt] = 0xFFFF;
     }
         
     pixCnt = 0;    
-    while (pixCnt < 192 && brokenPixCnt < 3)
+    while (pixCnt < 192 && brokenPixCnt < 2)
     {
         if((eeData[pixCnt+64] == 0) && (eeData[pixCnt+256] == 0) && (eeData[pixCnt+448] == 0) && (eeData[pixCnt+640] == 0))
         {
