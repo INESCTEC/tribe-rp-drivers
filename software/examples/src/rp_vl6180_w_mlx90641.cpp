@@ -76,16 +76,20 @@ void setup_mlx90641() {
     MLX90641_DumpEE(MLX_I2C_ADDR, eeMLX90641);
     MLX90641_ExtractParameters(eeMLX90641, &mlx90641_params);
 }
-void process_thermal() {
 
-    uint16_t frameData[242]; // Buffer for raw foton data (192 pixels + metadata)
-    float mlx90641To[192];   // Final output array for temperatures in Celsius
+void process_thermal_debug() {
+    uint16_t frameData[242];
+    float mlx90641To[192];
 
-    MLX90641_GetFrameData(MLX_I2C_ADDR, frameData);
+    int result = MLX90641_GetFrameData(MLX_I2C_ADDR, frameData);
+
+    if (result < 0) {
+        printf("$$thermal,error##\n");
+        return;
+    }
+
     float Ta = MLX90641_GetTa(frameData, &mlx90641_params);
-    float Vdd = MLX90641_GetVdd(frameData, &mlx90641_params);
-    float Tr = Ta;
-    MLX90641_CalculateTo(frameData, &mlx90641_params, EMISSIVITY, Tr, mlx90641To);
+    MLX90641_CalculateTo(frameData, &mlx90641_params, EMISSIVITY, Ta, mlx90641To);
     MLX90641_BadPixelsCorrection(mlx90641_params.brokenPixels, mlx90641To, &mlx90641_params);
 
     printf("$$thermal,%.2f,", Ta);
@@ -94,6 +98,28 @@ void process_thermal() {
         if (i < 191) printf(",");
     }
     printf("##\n");
+}
+void process_thermal() {
+    uint16_t frameData[242];
+    float mlx90641To[192];
+
+    int error = MLX90641_GetFrameData(MLX_I2C_ADDR, frameData);  // int, não uint8_t
+
+    if (error >= 0) {   // 0 ou 1 = sucesso; só negativo é erro
+        float Ta = MLX90641_GetTa(frameData, &mlx90641_params);
+        float Tr = Ta;
+        MLX90641_CalculateTo(frameData, &mlx90641_params, EMISSIVITY, Tr, mlx90641To);
+        MLX90641_BadPixelsCorrection(mlx90641_params.brokenPixels, mlx90641To, &mlx90641_params);
+
+        printf("$$thermal,%.2f,", Ta);
+        for (int i = 0; i < 192; i++) {
+            printf("%.2f", mlx90641To[i]);
+            if (i < 191) printf(",");
+        }
+        printf("##\n");
+    } else {
+        printf("$$thermal,error##\n");
+    }
 }
 
 void process_ros() {
@@ -125,15 +151,20 @@ int main() {
         400*1000, 
         true 
     );
+    
+    
 
     i2c_init(I2C_PORT, 400 * 1000);
     gpio_set_function(I2C_SDA_PIN, GPIO_FUNC_I2C);
     gpio_set_function(I2C_SCL_PIN, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA_PIN);
+    gpio_pull_up(I2C_SCL_PIN);
 
     sleep_ms(580); // Power on reset delay
     
-    setup_single_shot(&tof_sensor);
+    
     setup_mlx90641();
+    setup_single_shot(&tof_sensor);
 
     uint64_t tof_last_time = time_us_64();
 
@@ -147,6 +178,7 @@ int main() {
             }
         } 
         else if (current_state == STATE_CAPTURE) {
+            //process_thermal_debug();
             process_thermal();
             current_state = STATE_IDLE; 
         }

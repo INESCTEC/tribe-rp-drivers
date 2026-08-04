@@ -33,7 +33,8 @@ int main() {
         true 
     );
    picovl6180x_set_snr_check(&tof_sensor, true);
-   picovl6180x_set_crosstalk_compensation(&tof_sensor, 56); 
+   //picovl6180x_set_crosstalk_compensation(&tof_sensor, 56); 
+   picovl6180x_set_crosstalk_compensation(&tof_sensor, 79, 20); 
 
    picovl6180x_set_scaling(&tof_sensor, 1); // Set 1x scaling for max range ~1000mm
    if(status != PICOVL6180X_OK){

@@ -73,5 +73,6 @@
     int MLX90641_GetSubPageNumber(uint16_t *frameData);
     float MLX90641_GetEmissivity(const paramsMLX90641 *mlx90641);
     void MLX90641_BadPixelsCorrection(uint16_t *pixels, float *to, paramsMLX90641 *params);
+    int MLX9064x_I2CRead_non_blocking(uint8_t slaveAddr, uint16_t startAddress, uint16_t nMemAddressRead, uint16_t *data);
     
 #endif
