@@ -5,22 +5,19 @@
 /*
  * This function finds the first empty page inside a sector
  */
-int Flash::findFirstEmptyPageInSector(int flash_offs)
-{
-  int page, addr, first_empty_page = -1;
-  int* p;
-  for (page = 0; page < FLASH_SECTOR_SIZE / FLASH_PAGE_SIZE; ++page)
-  {
-    addr = XIP_BASE + flash_offs + ((page + 1) * FLASH_PAGE_SIZE);
-    p = (int*) addr;
-    // 0xFFFFFFFF cast as an int is -1 so this is how we detect an empty page
-    if (*p == -1 && first_empty_page < 0)
-    {
-      first_empty_page = page;
-      break;
+int Flash::findFirstEmptyPageInSector(int flash_offs) {
+    int page, addr, first_empty_page = -1;
+    int *p;
+    for (page = 0; page < FLASH_SECTOR_SIZE / FLASH_PAGE_SIZE; ++page) {
+        addr = XIP_BASE + flash_offs + (page * FLASH_PAGE_SIZE);
+        p = (int *) addr;
+        // 0xFFFFFFFF cast as an int is -1 so this is how we detect an empty page
+        if (*p == -1 && first_empty_page < 0) {
+            first_empty_page = page;
+            break;
+        }
     }
-  }
-  return first_empty_page;
+    return first_empty_page;
 }
 
 /*
