@@ -53,14 +53,14 @@ int MLX9064x_I2CRead_non_blocking(uint8_t slaveAddr, uint16_t startAddress, uint
     }
     size_t read_len = nMemAddressRead * 2;
     uint timeout_read_us = (read_len * 100) + 5000;
-    int return_read = i2c_read_timeout_us(I2C_PORT, slaveAddr, (uint8_t*)data, nMemAddressRead * 2, false, timeout_read_us);
+    int return_read = i2c_read_timeout_us(I2C_PORT, slaveAddr, reinterpret_cast<uint8_t*>(data), nMemAddressRead * 2, false, timeout_read_us);
     if (return_read == PICO_ERROR_GENERIC || return_read == PICO_ERROR_TIMEOUT) {
         printf("I2C read error: %d\n", return_read);
         return -1;
     }
     
     for(int i = 0; i < nMemAddressRead; i++){
-        uint8_t *p = (uint8_t*)&data[i];
+        uint8_t *p = reinterpret_cast<uint8_t*>(&data[i]);
         uint8_t temp = p[0];
         p[0] = p[1];
         p[1] = temp;
@@ -76,14 +76,14 @@ int MLX9064x_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16_t nMemAddr
         printf("I2C write error: %d\n", return_write);
         return -1;
     }
-    int return_read = i2c_read_blocking(I2C_PORT, slaveAddr, (uint8_t*)data, nMemAddressRead * 2, false);
+    int return_read = i2c_read_blocking(I2C_PORT, slaveAddr, reinterpret_cast<uint8_t*>(data), nMemAddressRead * 2, false);
     if (return_read == PICO_ERROR_GENERIC) {
         printf("I2C read error: %d\n", return_read);
         return -1;
     }
     
     for(int i = 0; i < nMemAddressRead; i++){
-        uint8_t *p = (uint8_t*)&data[i];
+        uint8_t *p = reinterpret_cast<uint8_t*>(&data[i]);
         uint8_t temp = p[0];
         p[0] = p[1];
         p[1] = temp;
