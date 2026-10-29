@@ -198,6 +198,12 @@ void LC29HDriver::dispatchEpochSentence(char *line, uint32_t now_ms) {
         return;
     }
 
+    // Sentences outside the set are only counted (above): they never open, join or close an epoch
+    if ((strncmp(line, "$PQTMTAR", 8) == 0 && !(epoch_sentences_ & GNSS_SENTENCE_PQTMTAR)) ||
+        (strncmp(line, "$PQTMEPE", 8) == 0 && !(epoch_sentences_ & GNSS_SENTENCE_PQTMEPE))) {
+        return;
+    }
+
     char *fields[24];
     int n = splitFields(line, fields, 24);
 
@@ -232,7 +238,7 @@ void LC29HDriver::dispatchEpochSentence(char *line, uint32_t now_ms) {
         return;
     }
 
-    if ((open_epoch_.sentences_ & GNSS_SENTENCE_ALL) == GNSS_SENTENCE_ALL) {
+    if ((open_epoch_.sentences_ & epoch_sentences_) == epoch_sentences_) {
         closeEpoch(GNSS_CLOSE_COMPLETE);
     }
 }

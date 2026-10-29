@@ -30,11 +30,12 @@
 #define GNSS_VALID_TIME (1 << 4)         // GGA UTC time present
 #define GNSS_VALID_CLIPPED (1 << 5)      // set by the encoder: a value did not fit and was clipped
 
-// GnssEpoch::sentences_: which sentences of the epoch arrived
+// GnssEpoch::sentences_ (which sentences of the epoch arrived) and setEpochSentences()
 #define GNSS_SENTENCE_GGA (1 << 0)
 #define GNSS_SENTENCE_PQTMTAR (1 << 1)
 #define GNSS_SENTENCE_PQTMEPE (1 << 2)
 #define GNSS_SENTENCE_ALL (GNSS_SENTENCE_GGA | GNSS_SENTENCE_PQTMTAR | GNSS_SENTENCE_PQTMEPE)
+#define GNSS_SENTENCE_DEFAULT (GNSS_SENTENCE_GGA | GNSS_SENTENCE_PQTMTAR)  // the sentences used before PQTMEPE
 
 // Default for setEpochTimeoutMs(). Measured on the LC29H EA at 10 Hz: PQTMTAR arrives ~50 ms after GGA,
 // so this must be above that and below the 100 ms fix period
@@ -71,7 +72,7 @@ struct GnssEpoch {
 };
 
 // GnssEpoch::close_reason_
-#define GNSS_CLOSE_COMPLETE 1  // all the sentences arrived
+#define GNSS_CLOSE_COMPLETE 1  // every sentence of the set arrived (setEpochSentences())
 #define GNSS_CLOSE_NEXT_GGA 2  // the next fix's GGA arrived first
 #define GNSS_CLOSE_REPEAT 3    // a second copy of a sentence arrived (e.g. the GGA of this fix was lost)
 #define GNSS_CLOSE_TIMEOUT 4   // the epoch timeout passed
@@ -136,6 +137,13 @@ public:
     /// Copies the oldest closed epoch not yet taken into *epoch. Returns false if there is none.
     bool takeEpoch(struct GnssEpoch *epoch);
 
+    /// Sentences that make up an epoch (GNSS_SENTENCE_*). GGA is always included (it opens the epoch and
+    /// carries the time). An epoch is complete when all of them arrived; sentences outside the set are
+    /// ignored (counted in stats()). The module must be configured to send them: a sentence in the set
+    /// that never arrives makes every epoch wait the epoch timeout. Default GNSS_SENTENCE_DEFAULT.
+    void setEpochSentences(uint8_t sentences) { epoch_sentences_ = sentences | GNSS_SENTENCE_GGA; }
+    uint8_t epochSentences() const { return epoch_sentences_; }
+
     /// How long an open epoch waits for the rest of its sentences before it closes anyway
     /// (GNSS_CLOSE_TIMEOUT). Must be above the delay between GGA and the last sentence of the epoch and
     /// below the fix period. Default GNSS_EPOCH_TIMEOUT_MS (90 ms, for 10 Hz).
@@ -179,6 +187,7 @@ private:
     bool epoch_open_ = false;
     uint32_t epoch_opened_ms_ = 0;
     uint16_t epoch_timeout_ms_ = GNSS_EPOCH_TIMEOUT_MS;
+    uint8_t epoch_sentences_ = GNSS_SENTENCE_DEFAULT;
     GnssEpoch ready_[GNSS_EPOCH_QUEUE_MAX] = {};  // closed epochs not yet taken, oldest at ready_head_
     uint8_t ready_head_ = 0;
     uint8_t ready_count_ = 0;
