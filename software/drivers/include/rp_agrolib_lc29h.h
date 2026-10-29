@@ -18,6 +18,64 @@
 #define LC29H_TX_RING_SIZE 8192  // bytes of corrections waiting for the UART (~8 s at ~1 KB/s)
 #endif
 
+// LC29H_DEBUG_TIMING (debug only, off by default): adds timing fields to GnssEpoch and LC29HStats for
+// bench debugging. It changes the struct layout, so link the rp_agrolib_lc29h_debug library (which
+// defines it for the library and the firmware alike) instead of defining it only in the firmware
+
+// GnssEpoch::flags_: which fields hold a value (a field whose bit is 0 must not be used)
+#define GNSS_VALID_POSITION (1 << 0)     // GGA latitude/longitude present and fix quality >= 1
+#define GNSS_VALID_HEADING (1 << 1)      // PQTMTAR heading present and heading quality >= 1
+#define GNSS_VALID_HEADING_ACC (1 << 2)  // PQTMTAR heading accuracy present
+#define GNSS_VALID_EPE (1 << 3)          // PQTMEPE north/east/down present
+#define GNSS_VALID_TIME (1 << 4)         // GGA UTC time present
+#define GNSS_VALID_CLIPPED (1 << 5)      // set by the encoder: a value did not fit and was clipped
+
+// GnssEpoch::sentences_: which sentences of the epoch arrived
+#define GNSS_SENTENCE_GGA (1 << 0)
+#define GNSS_SENTENCE_PQTMTAR (1 << 1)
+#define GNSS_SENTENCE_PQTMEPE (1 << 2)
+#define GNSS_SENTENCE_ALL (GNSS_SENTENCE_GGA | GNSS_SENTENCE_PQTMTAR | GNSS_SENTENCE_PQTMEPE)
+
+// Default for setEpochTimeoutMs(). Measured on the LC29H EA at 10 Hz: PQTMTAR arrives ~50 ms after GGA,
+// so this must be above that and below the 100 ms fix period
+#define GNSS_EPOCH_TIMEOUT_MS 90
+
+// Closed epochs kept for takeEpoch(); when full, the oldest is dropped (LC29HStats::overwritten)
+#define GNSS_EPOCH_QUEUE_MAX 8
+
+/// One GNSS solution: the GGA, PQTMTAR and PQTMEPE sentences the module prints for the same fix
+struct GnssEpoch {
+    uint32_t utc_ms_;          // UTC time of the fix, ms since 00:00
+    double latitude_;          // deg, south negative
+    double longitude_;         // deg, west negative
+    uint8_t fix_quality_;      // GGA quality: 0 invalid, 1 GPS, 2 DGPS, 4 RTK fixed, 5 RTK float, 6 dead reckoning
+    uint8_t num_satellites_;   // satellites used in the position
+    double heading_;           // deg, 0-360
+    uint8_t heading_quality_;  // PQTMTAR quality, same values as fix_quality_
+    double heading_acc_;       // deg
+    double baseline_m_;        // distance between the two antennas reported by the module
+    double epe_north_;         // m
+    double epe_east_;          // m
+    double epe_down_;          // m
+    uint8_t flags_;            // GNSS_VALID_*
+    uint8_t sentences_;        // GNSS_SENTENCE_*
+    uint8_t seq_;              // closing order: +1 per epoch closed (wraps), the first closed is 1
+    uint8_t close_reason_;     // GNSS_CLOSE_*
+#ifdef LC29H_DEBUG_TIMING
+    // Debug only (caller's ms clock, resolution = how often processStreamEpochs() is called)
+    uint32_t opened_ms_;      // first sentence of the epoch parsed
+    uint32_t closed_ms_;
+    uint16_t tar_after_ms_;   // PQTMTAR / PQTMEPE parsed this long after the epoch opened (0xFFFF: not received)
+    uint16_t epe_after_ms_;
+#endif
+};
+
+// GnssEpoch::close_reason_
+#define GNSS_CLOSE_COMPLETE 1  // all the sentences arrived
+#define GNSS_CLOSE_NEXT_GGA 2  // the next fix's GGA arrived first
+#define GNSS_CLOSE_REPEAT 3    // a second copy of a sentence arrived (e.g. the GGA of this fix was lost)
+#define GNSS_CLOSE_TIMEOUT 4   // the epoch timeout passed
+
 /// Counters, cumulative since start (only incremented: cheap enough to keep always)
 struct LC29HStats {
     uint32_t lines;               // complete lines assembled
@@ -28,6 +86,13 @@ struct LC29HStats {
     uint32_t uart_framing_break;  // framing or break errors
     uint32_t rtcm_bytes;          // correction bytes queued by writeCorrections()
     uint32_t rtcm_dropped;        // correction frames dropped: no room in the TX ring
+    uint32_t ok_gga, ok_tar, ok_epe, ok_other;      // valid checksum, by sentence (processStreamEpochs())
+    uint32_t bad_gga, bad_tar, bad_epe, bad_other;  // checksum failed (or no checksum), by sentence prefix
+    uint32_t closed[5];                             // epochs closed, by GNSS_CLOSE_* (index 0 unused)
+    uint32_t overwritten;  // closed epochs dropped for a newer one before takeEpoch() read them (queue full)
+#ifdef LC29H_DEBUG_TIMING
+    uint32_t irq_max_us;  // debug only: longest UART interrupt (RX + TX)
+#endif
 };
 
 struct RtkState {
@@ -61,6 +126,21 @@ public:
     /// a 10 ms timer). Use either this or processStreamEpochs(), not both: each one consumes the ring.
     void processStream(struct RtkState *rtk_state);
 
+    /// Same input as processStream(), but groups GGA, PQTMTAR and PQTMEPE into epochs (one per fix).
+    /// A GGA opens the epoch; PQTMEPE and PQTMTAR join the open one. An epoch is closed when all its
+    /// sentences arrived, when the next GGA (or a second copy of a sentence) arrives, or when the epoch
+    /// timeout passed since it opened. Returns how many epochs were closed in this call; they wait in a
+    /// queue read with takeEpoch(). now_ms is the caller's millisecond clock.
+    uint8_t processStreamEpochs(uint32_t now_ms);
+
+    /// Copies the oldest closed epoch not yet taken into *epoch. Returns false if there is none.
+    bool takeEpoch(struct GnssEpoch *epoch);
+
+    /// How long an open epoch waits for the rest of its sentences before it closes anyway
+    /// (GNSS_CLOSE_TIMEOUT). Must be above the delay between GGA and the last sentence of the epoch and
+    /// below the fix period. Default GNSS_EPOCH_TIMEOUT_MS (90 ms, for 10 Hz).
+    void setEpochTimeoutMs(uint16_t ms) { epoch_timeout_ms_ = ms; }
+
     void getNMEA(uint16_t size, struct RtkState *rtk_state, uint8_t *data);
     void getPQMT(uint16_t in_size, char *pqmt, uint8_t *data, uint16_t *out_size);
     void getPair(uint16_t in_size, char *pair, uint8_t *data, uint16_t *out_size);
@@ -93,6 +173,29 @@ private:
     uint16_t line_len_ = 0;
     bool assembleLine(char ch);
     void dispatchSentence(const char *line, struct RtkState *rtk_state);
+
+    // processStreamEpochs() state
+    GnssEpoch open_epoch_ = {};  // epoch being assembled
+    bool epoch_open_ = false;
+    uint32_t epoch_opened_ms_ = 0;
+    uint16_t epoch_timeout_ms_ = GNSS_EPOCH_TIMEOUT_MS;
+    GnssEpoch ready_[GNSS_EPOCH_QUEUE_MAX] = {};  // closed epochs not yet taken, oldest at ready_head_
+    uint8_t ready_head_ = 0;
+    uint8_t ready_count_ = 0;
+    uint8_t seq_ = 0;  // seq_ of the newest closed epoch
+    uint8_t epochs_closed_ = 0;
+    uint32_t now_ms_ = 0;  // time of the current processStreamEpochs() call
+
+    void dispatchEpochSentence(char *line, uint32_t now_ms);
+    void countSentence(const char *line, bool ok);
+    void closeEpoch(uint8_t reason);
+    void openEpoch(uint32_t now_ms);
+    void prepareEpoch(uint8_t sentence, uint32_t now_ms);
+    void parseGGAFields(char **fields, int n);
+    void parsePQTMTARFields(char **fields, int n);
+    void parsePQTMEPEFields(char **fields, int n);
+    static int splitFields(char *line, char **fields, int max_fields);
+    static bool parseUtcMs(const char *field, uint32_t *utc_ms);
 
     void parseGGA(const char *data, struct RtkState *rtk_state);
     void parseVTG(const char *data, struct RtkState *rtk_state);

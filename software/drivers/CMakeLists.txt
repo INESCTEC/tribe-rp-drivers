@@ -175,6 +175,29 @@ install(TARGETS rp_agrolib_lc29h
         RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin
         )
 
+# Debug only: same driver with LC29H_DEBUG_TIMING (timing fields in GnssEpoch and LC29HStats). PUBLIC, so the
+# firmware that links it sees the same struct layout as the library
+add_library(rp_agrolib_lc29h_debug
+        src/rp_agrolib_lc29h.cpp
+        include/rp_agrolib_lc29h.h)
+
+target_compile_definitions(rp_agrolib_lc29h_debug PUBLIC LC29H_DEBUG_TIMING)
+
+target_link_libraries(rp_agrolib_lc29h_debug PUBLIC
+        rp_agrolib_uart
+        pico_stdlib
+        )
+
+target_include_directories(rp_agrolib_lc29h_debug PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+install(TARGETS rp_agrolib_lc29h_debug
+        ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
+        RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin
+        )
+
 ###########################################################################
 # TFmini Plus - Benewake 1D ToF LiDAR
 ###########################################################################
