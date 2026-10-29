@@ -7,12 +7,13 @@ LC29HDriver *LC29HDriver::instance_[2] = {nullptr, nullptr};
 
 LC29HDriver::LC29HDriver(uart_inst_t *uart_id) : uart_id_(uart_id) {}
 
-bool LC29HDriver::begin(int rx_pin, int tx_pin, uint baudrate) {
+bool LC29HDriver::begin(int rx_pin, int tx_pin, uint baudrate, uint16_t parse_period_ms) {
     uint index = uart_get_index(uart_id_);
     int irq = index == 0 ? UART0_IRQ : UART1_IRQ;
     if (instance_[index] != nullptr || irq_has_handler(irq)) {
         return false;
     }
+    critical_section_init(&lock_);
     uart_setup(uart_id_, rx_pin, tx_pin, baudrate, 8, 1, UART_PARITY_NONE, true);
     instance_[index] = this;
     irq_set_exclusive_handler(irq, index == 0 ? uart0Irq : uart1Irq);
@@ -23,6 +24,16 @@ bool LC29HDriver::begin(int rx_pin, int tx_pin, uint baudrate) {
     hw_write_masked(&uart_get_hw(uart_id_)->ifls, 2 << UART_UARTIFLS_TXIFLSEL_LSB, UART_UARTIFLS_TXIFLSEL_BITS);
     irq_set_enabled(irq, true);
     begun_ = true;
+
+    // Negative period: from the start of one call to the start of the next, whatever the call lasts
+    if (parse_period_ms > 0 && !add_repeating_timer_ms(-(int32_t) parse_period_ms, parseTimerCb, this, &parse_timer_)) {
+        return false;
+    }
+    return true;
+}
+
+bool LC29HDriver::parseTimerCb(struct repeating_timer *t) {
+    ((LC29HDriver *) t->user_data)->process(to_ms_since_boot(get_absolute_time()));
     return true;
 }
 
@@ -110,7 +121,17 @@ void LC29HDriver::writeCorrections(uint8_t *data, uint16_t size) {
     irq_set_enabled(irq, true);
 }
 
-void LC29HDriver::processStream(RtkState *rtk_state) {
+uint8_t LC29HDriver::process(uint32_t now_ms) {
+#ifdef LC29H_DEBUG_TIMING
+    uint32_t t_in = time_us_32();
+    if (last_parse_us_ && t_in - last_parse_us_ > stats_.parse_gap_max_us) {
+        stats_.parse_gap_max_us = t_in - last_parse_us_;
+    }
+    last_parse_us_ = t_in;
+#endif
+    epochs_closed_ = 0;
+    now_ms_ = now_ms;
+
     uint16_t w = rx_w_;
 #ifdef LC29H_DEBUG_TIMING
     notePending(w);
@@ -119,9 +140,94 @@ void LC29HDriver::processStream(RtkState *rtk_state) {
         char ch = (char) rx_ring_[rx_r_];
         rx_r_ = (rx_r_ + 1) % LC29H_RX_RING_SIZE;
         if (assembleLine(ch)) {
-            dispatchSentence(line_, rtk_state);
+            handleLine(line_, now_ms);
         }
     }
+
+    // An epoch that never completes (a sentence missing or lost) is closed as it is
+    if (epoch_open_ && (now_ms - epoch_opened_ms_) >= epoch_timeout_ms_) {
+        closeEpoch(GNSS_CLOSE_TIMEOUT);
+    }
+
+#ifdef LC29H_DEBUG_TIMING
+    uint32_t dt = time_us_32() - t_in;
+    if (dt > stats_.parse_max_us) {
+        stats_.parse_max_us = dt;
+    }
+#endif
+    return epochs_closed_;
+}
+
+void LC29HDriver::handleLine(char *line, uint32_t now_ms) {
+    bool ok = line[0] == '$' && validateChecksum(line);
+    countSentence(line, ok);
+    if (!ok) {
+        return;
+    }
+    char *fields[24];
+    int n = splitFields(line, fields, 24);  // in place, once for both uses
+    updateState(fields, n);
+    dispatchEpochFields(fields, n, now_ms);
+}
+
+void LC29HDriver::updateState(char **fields, int n) {
+    // Same values as the old getNMEA(), from the split fields (no memory allocation: this runs in an interrupt).
+    // Empty fields leave the value as it was
+    RtkState &st = state_work_;
+    if (strcmp(fields[0], "$GNGGA") == 0) {
+        // $GNGGA,1 UTC,2 Lat,3 N/S,4 Lon,5 E/W,6 Quality,7 NumSatUsed,8 HDOP,9 Alt,...
+        if (n > 1 && fields[1][0] != '\0')
+            st.utc_ = atof(fields[1]);
+        if (n > 5 && fields[2][0] != '\0' && fields[4][0] != '\0') {
+            st.latitude_ = convertToDegrees(atof(fields[2]));
+            if (fields[3][0] == 'S')
+                st.latitude_ = -st.latitude_;
+            st.longitude_ = convertToDegrees(atof(fields[4]));
+            if (fields[5][0] == 'W')
+                st.longitude_ = -st.longitude_;
+        }
+        if (n > 6 && fields[6][0] != '\0')
+            st.fix_status_ = (uint8_t) atoi(fields[6]);
+        if (n > 7 && fields[7][0] != '\0')
+            st.num_satellites_ = (uint16_t) atoi(fields[7]);
+        if (n > 9 && fields[9][0] != '\0')
+            st.altitude_ = atof(fields[9]);
+    } else if (strcmp(fields[0], "$PQTMTAR") == 0) {
+        // $PQTMTAR,...,8 Heading,...
+        if (n > 8 && fields[8][0] != '\0')
+            st.heading_ = atof(fields[8]);
+    } else if (strcmp(fields[0], "$GNVTG") == 0) {
+        // $GNVTG,1 COG_T,2 T,3 COG_M,4 M,5 SOG_kn,6 N,7 SOG_kmh,8 K,...
+        if (n > 7 && fields[7][0] != '\0')
+            st.speed_kph_ = atof(fields[7]);
+    } else {
+        return;
+    }
+    critical_section_enter_blocking(&lock_);
+    state_ = st;
+    critical_section_exit(&lock_);
+}
+
+void LC29HDriver::getState(RtkState *rtk_state) {
+    critical_section_enter_blocking(&lock_);
+    *rtk_state = state_;
+    critical_section_exit(&lock_);
+}
+
+void LC29HDriver::setEpochSentences(uint8_t sentences) {
+    if (begun_)
+        critical_section_enter_blocking(&lock_);
+    epoch_sentences_ = sentences | GNSS_SENTENCE_GGA;
+    if (begun_)
+        critical_section_exit(&lock_);
+}
+
+void LC29HDriver::setEpochTimeoutMs(uint16_t ms) {
+    if (begun_)
+        critical_section_enter_blocking(&lock_);
+    epoch_timeout_ms_ = ms;
+    if (begun_)
+        critical_section_exit(&lock_);
 }
 
 bool LC29HDriver::assembleLine(char ch) {
@@ -164,55 +270,27 @@ void LC29HDriver::dispatchSentence(const char *line, RtkState *rtk_state) {
     }
 }
 
-uint8_t LC29HDriver::processStreamEpochs(uint32_t now_ms) {
-    epochs_closed_ = 0;
-    now_ms_ = now_ms;
-
-    uint16_t w = rx_w_;
-#ifdef LC29H_DEBUG_TIMING
-    notePending(w);
-#endif
-    while (rx_r_ != w) {
-        char ch = (char) rx_ring_[rx_r_];
-        rx_r_ = (rx_r_ + 1) % LC29H_RX_RING_SIZE;
-        if (assembleLine(ch)) {
-            dispatchEpochSentence(line_, now_ms);
-        }
-    }
-
-    // An epoch that never completes (a sentence missing or lost) is closed as it is
-    if (epoch_open_ && (now_ms - epoch_opened_ms_) >= epoch_timeout_ms_) {
-        closeEpoch(GNSS_CLOSE_TIMEOUT);
-    }
-
-    return epochs_closed_;
-}
-
 bool LC29HDriver::takeEpoch(struct GnssEpoch *epoch) {
-    if (ready_count_ == 0) {
-        return false;
+    // The parse (timer interrupt, possibly on the other core) adds to the queue while this removes from it:
+    // the copy and the head/count update must be one step, or an epoch can be overwritten mid-copy or the count
+    // lose an update. The critical section blocks interrupts on this core and the other core's access
+    critical_section_enter_blocking(&lock_);
+    bool got = ready_count_ > 0;
+    if (got) {
+        *epoch = ready_[ready_head_];
+        ready_head_ = (ready_head_ + 1) % GNSS_EPOCH_QUEUE_MAX;
+        ready_count_--;
     }
-    *epoch = ready_[ready_head_];
-    ready_head_ = (ready_head_ + 1) % GNSS_EPOCH_QUEUE_MAX;
-    ready_count_--;
-    return true;
+    critical_section_exit(&lock_);
+    return got;
 }
 
-void LC29HDriver::dispatchEpochSentence(char *line, uint32_t now_ms) {
-    bool ok = line[0] == '$' && validateChecksum(line);
-    countSentence(line, ok);
-    if (!ok) {
+void LC29HDriver::dispatchEpochFields(char **fields, int n, uint32_t now_ms) {
+    // Sentences outside the set are only counted: they never open, join or close an epoch
+    if ((strcmp(fields[0], "$PQTMTAR") == 0 && !(epoch_sentences_ & GNSS_SENTENCE_PQTMTAR)) ||
+        (strcmp(fields[0], "$PQTMEPE") == 0 && !(epoch_sentences_ & GNSS_SENTENCE_PQTMEPE))) {
         return;
     }
-
-    // Sentences outside the set are only counted (above): they never open, join or close an epoch
-    if ((strncmp(line, "$PQTMTAR", 8) == 0 && !(epoch_sentences_ & GNSS_SENTENCE_PQTMTAR)) ||
-        (strncmp(line, "$PQTMEPE", 8) == 0 && !(epoch_sentences_ & GNSS_SENTENCE_PQTMEPE))) {
-        return;
-    }
-
-    char *fields[24];
-    int n = splitFields(line, fields, 24);
 
     if (strcmp(fields[0], "$GNGGA") == 0) {
         // GGA starts the epoch of a new fix: whatever is still open belongs to the previous one
@@ -285,6 +363,7 @@ void LC29HDriver::openEpoch(uint32_t now_ms) {
 }
 
 void LC29HDriver::closeEpoch(uint8_t reason) {
+    critical_section_enter_blocking(&lock_);
     if (ready_count_ >= GNSS_EPOCH_QUEUE_MAX) {
         // Queue full: the oldest waiting epoch was never taken
         stats_.overwritten++;
@@ -299,6 +378,7 @@ void LC29HDriver::closeEpoch(uint8_t reason) {
     stats_.closed[reason]++;
     ready_[(ready_head_ + ready_count_) % GNSS_EPOCH_QUEUE_MAX] = open_epoch_;
     ready_count_++;
+    critical_section_exit(&lock_);
     epoch_open_ = false;
     epochs_closed_++;
 }
@@ -604,7 +684,8 @@ int LC29HDriver::formatStatsDebugLines(uint32_t now_ms, char *buf, int size) {
     // Snapshot and reset the maxima together (they are written in interrupts)
     uint32_t irq = save_and_disable_interrupts();
     uint32_t irq_max = stats_.irq_max_us, ring_max = stats_.rx_ring_max_pending;
-    stats_.irq_max_us = stats_.rx_ring_max_pending = 0;
+    uint32_t parse_max = stats_.parse_max_us, parse_gap_max = stats_.parse_gap_max_us;
+    stats_.irq_max_us = stats_.rx_ring_max_pending = stats_.parse_max_us = stats_.parse_gap_max_us = 0;
     restore_interrupts(irq);
 
     const LC29HStats &s = stats_;
@@ -614,13 +695,13 @@ int LC29HDriver::formatStatsDebugLines(uint32_t now_ms, char *buf, int size) {
                      "DS,%lu,%lu,%lu,%lu,%lu,%lu,%lu\n"
                      "DB,%lu,%lu,%lu,%lu,%lu\n"
                      "DC,%lu,%lu,%lu,%lu,%lu,%lu\n"
-                     "DL,%lu,%lu,%lu,%lu\n",
+                     "DL,%lu,%lu,%lu,%lu,%lu,%lu\n",
                      t, s.rx_bytes, s.uart_overrun, s.uart_framing_break, ring_max, irq_max,
                      t, s.lines, s.ok_gga, s.ok_tar, s.ok_epe, s.ok_other, s.long_lines,
                      t, s.bad_gga, s.bad_tar, s.bad_epe, s.bad_other,
                      t, s.closed[GNSS_CLOSE_COMPLETE], s.closed[GNSS_CLOSE_NEXT_GGA], s.closed[GNSS_CLOSE_REPEAT],
                      s.closed[GNSS_CLOSE_TIMEOUT], s.overwritten,
-                     t, s.rx_dropped, s.rtcm_bytes, s.rtcm_dropped);
+                     t, s.rx_dropped, s.rtcm_bytes, s.rtcm_dropped, parse_max, parse_gap_max);
     return n < size ? n : size - 1;
 }
 #endif

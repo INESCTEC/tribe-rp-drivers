@@ -85,7 +85,7 @@ def epoch_run(run, rows, meta):
     ds = counters(rows, 'DS', ['t', 'lines', 'ok_gga', 'ok_tar', 'ok_epe', 'ok_other', 'long_lines'])
     db = counters(rows, 'DB', ['t', 'bad_gga', 'bad_tar', 'bad_epe', 'bad_other'])
     dc = counters(rows, 'DC', ['t', 'complete', 'next_gga', 'repeat', 'timeout', 'overwritten'])
-    dl = counters(rows, 'DL', ['t', 'rx_dropped', 'rtcm_bytes', 'rtcm_dropped'])
+    dl = counters(rows, 'DL', ['t', 'rx_dropped', 'rtcm_bytes', 'rtcm_dropped', 'parse_max_us', 'parse_gap_max_us'])
 
     rep = {
         'step': meta.get('step'), 'firmware': meta.get('firmware'),
@@ -118,7 +118,9 @@ def epoch_run(run, rows, meta):
             'rtcm_dropped': delta(dl, 'rtcm_dropped')},
         'rp2040_maxima_over_run': {
             'ring_max_pending_bytes': int(du.ring_max.max()) if len(du) else None,
-            'uart_irq_max_us': int(du.uart_irq_max_us.max()) if len(du) else None},
+            'uart_irq_max_us': int(du.uart_irq_max_us.max()) if len(du) else None,
+            'parse_max_us': int(dl.parse_max_us.max()) if len(dl) else None,
+            'parse_gap_max_us': int(dl.parse_gap_max_us.max()) if len(dl) else None},
     }
     return e, rep
 

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "pico/critical_section.h"
 #include "pico/stdlib.h"
 
 #include "rp_agrolib_uart.h"
@@ -17,6 +18,10 @@
 #ifndef LC29H_TX_RING_SIZE
 #define LC29H_TX_RING_SIZE 8192  // bytes of corrections waiting for the UART (~8 s at ~1 KB/s)
 #endif
+
+// Default for begin()'s parse period: much shorter than the epoch timeout (it is checked at each parse) and
+// than what the RX ring holds (~0.3 s), long enough not to add interrupts for nothing
+#define LC29H_PARSE_PERIOD_MS 10
 
 // LC29H_DEBUG_TIMING (debug only, off by default): adds timing fields to GnssEpoch and LC29HStats for
 // bench debugging. It changes the struct layout, so link the rp_agrolib_lc29h_debug library (which
@@ -63,7 +68,7 @@ struct GnssEpoch {
     uint8_t seq_;              // closing order: +1 per epoch closed (wraps), the first closed is 1
     uint8_t close_reason_;     // GNSS_CLOSE_*
 #ifdef LC29H_DEBUG_TIMING
-    // Debug only (caller's ms clock, resolution = how often processStreamEpochs() is called)
+    // Debug only (caller's ms clock, resolution = the parse period)
     uint32_t opened_ms_;      // first sentence of the epoch parsed
     uint32_t closed_ms_;
     uint16_t tar_after_ms_;   // PQTMTAR / PQTMEPE parsed this long after the epoch opened (0xFFFF: not received)
@@ -87,7 +92,7 @@ struct LC29HStats {
     uint32_t uart_framing_break;  // framing or break errors
     uint32_t rtcm_bytes;          // correction bytes queued by writeCorrections()
     uint32_t rtcm_dropped;        // correction frames dropped: no room in the TX ring
-    uint32_t ok_gga, ok_tar, ok_epe, ok_other;      // valid checksum, by sentence (processStreamEpochs())
+    uint32_t ok_gga, ok_tar, ok_epe, ok_other;      // valid checksum, by sentence
     uint32_t bad_gga, bad_tar, bad_epe, bad_other;  // checksum failed (or no checksum), by sentence prefix
     uint32_t closed[5];                             // epochs closed, by GNSS_CLOSE_* (index 0 unused)
     uint32_t overwritten;  // closed epochs dropped for a newer one before takeEpoch() read them (queue full)
@@ -95,6 +100,8 @@ struct LC29HStats {
     // Debug only; maxima since the previous formatStatsDebugLines()
     uint32_t irq_max_us;           // longest UART interrupt (RX + TX)
     uint32_t rx_ring_max_pending;  // most unparsed bytes in the RX ring at a parse call
+    uint32_t parse_max_us;         // longest parse call
+    uint32_t parse_gap_max_us;     // longest time between two parse calls
 #endif
 };
 
@@ -113,10 +120,12 @@ class LC29HDriver {
 public:
     LC29HDriver(uart_inst_t *uart_id);
 
-    /// Sets up the UART (8N1, RX/TX FIFOs on), the RX ring and the UART interrupt. From here on the
-    /// driver owns this UART's interrupt: the firmware must not call uart_enable_interrupt() on it.
-    /// Returns false if the interrupt already has a handler (another driver or the firmware).
-    bool begin(int rx_pin, int tx_pin, uint baudrate);
+    /// Sets up the UART (8N1, RX/TX FIFOs on), the RX ring, the UART interrupt and a timer that parses the
+    /// received sentences every parse_period_ms (in the timer interrupt). From here on the driver owns this
+    /// UART's interrupt: the firmware must not call uart_enable_interrupt() on it. parse_period_ms = 0:
+    /// no timer, the firmware calls process() itself. Returns false if the UART's interrupt already has a
+    /// handler (another driver or the firmware) or no timer is free.
+    bool begin(int rx_pin, int tx_pin, uint baudrate, uint16_t parse_period_ms = LC29H_PARSE_PERIOD_MS);
 
     /// After begin(): queues a correction frame for the module and returns at once; the UART interrupt
     /// sends it. Drops the whole frame (stats().rtcm_dropped) if the TX ring has no room. Nothing else
@@ -124,39 +133,38 @@ public:
     /// Without begin(): writes the frame and waits until it is sent, as before.
     void writeCorrections(uint8_t *data, uint16_t size);
 
-    /// After begin(): parses every complete NMEA sentence that arrived since the previous call, in arrival
-    /// order, so rtk_state ends up holding the NEWEST GGA, PQTMTAR and VTG. Call it periodically (e.g. from
-    /// a 10 ms timer). Use either this or processStreamEpochs(), not both: each one consumes the ring.
-    void processStream(struct RtkState *rtk_state);
-
-    /// Same input as processStream(), but groups GGA, PQTMTAR and PQTMEPE into epochs (one per fix).
-    /// A GGA opens the epoch; PQTMEPE and PQTMTAR join the open one. An epoch is closed when all its
-    /// sentences arrived, when the next GGA (or a second copy of a sentence) arrives, or when the epoch
-    /// timeout passed since it opened. Returns how many epochs were closed in this call; they wait in a
-    /// queue read with takeEpoch(). now_ms is the caller's millisecond clock.
-    uint8_t processStreamEpochs(uint32_t now_ms);
-
-    /// Copies the oldest closed epoch not yet taken into *epoch. Returns false if there is none.
+    /// Copies the oldest closed epoch not yet taken into *epoch. Returns false if there is none. Call it in a
+    /// loop until it returns false: several epochs may be waiting. Safe from anywhere (it protects the queue
+    /// from the parse timer, on either core).
     bool takeEpoch(struct GnssEpoch *epoch);
+
+    /// Copies the newest GGA, PQTMTAR and VTG values into *rtk_state. Each field holds the newest sentence of
+    /// its type, so position and heading may belong to different fixes: use epochs when that matters.
+    void getState(struct RtkState *rtk_state);
 
     /// Sentences that make up an epoch (GNSS_SENTENCE_*). GGA is always included (it opens the epoch and
     /// carries the time). An epoch is complete when all of them arrived; sentences outside the set are
     /// ignored (counted in stats()). The module must be configured to send them: a sentence in the set
     /// that never arrives makes every epoch wait the epoch timeout. Default GNSS_SENTENCE_DEFAULT.
-    void setEpochSentences(uint8_t sentences) { epoch_sentences_ = sentences | GNSS_SENTENCE_GGA; }
+    void setEpochSentences(uint8_t sentences);
     uint8_t epochSentences() const { return epoch_sentences_; }
 
     /// How long an open epoch waits for the rest of its sentences before it closes anyway
     /// (GNSS_CLOSE_TIMEOUT). Must be above the delay between GGA and the last sentence of the epoch and
     /// below the fix period. Default GNSS_EPOCH_TIMEOUT_MS (90 ms, for 10 Hz).
-    void setEpochTimeoutMs(uint16_t ms) { epoch_timeout_ms_ = ms; }
+    void setEpochTimeoutMs(uint16_t ms);
 
-    /// Deprecated: use begin() + processStream(). For firmware that keeps its own RX ring: data is that
+    /// Manual mode only (begin() with parse_period_ms = 0): parses the sentences received since the previous
+    /// call and closes the epochs that are complete. Call it every ~10 ms; now_ms is the caller's millisecond
+    /// clock. Returns how many epochs were closed. With the driver's timer (the default) never call it.
+    uint8_t process(uint32_t now_ms);
+
+    /// Deprecated, and only for firmware that does not call begin() and keeps its own RX ring: data is that
     /// ring and size its write index. Parses only the sentences that arrived since the previous call, so
     /// rtk_state holds the newest ones. A size smaller than the previous one means the ring wrapped; the
     /// ring length is unknown here, so the sentence across the wrap is skipped (one update, ~100 ms).
-    [[deprecated("use begin() + processStream()")]] void getNMEA(uint16_t size, struct RtkState *rtk_state,
-                                                                  uint8_t *data);
+    [[deprecated("use begin() + takeEpoch() / getState()")]] void getNMEA(uint16_t size, struct RtkState *rtk_state,
+                                                                           uint8_t *data);
     void getPQMT(uint16_t in_size, char *pqmt, uint8_t *data, uint16_t *out_size);
     void getPair(uint16_t in_size, char *pair, uint8_t *data, uint16_t *out_size);
 
@@ -178,7 +186,7 @@ public:
     ///   DS,t,lines,ok_gga,ok_tar,ok_epe,ok_other,long_lines
     ///   DB,t,bad_gga,bad_tar,bad_epe,bad_other
     ///   DC,t,complete,next_gga,repeat,timeout,overwritten
-    ///   DL,t,rx_dropped,rtcm_bytes,rtcm_dropped
+    ///   DL,t,rx_dropped,rtcm_bytes,rtcm_dropped,parse_max_us,parse_gap_max_us
     int formatStatsDebugLines(uint32_t now_ms, char *buf, int size);
 #endif
 
@@ -186,6 +194,14 @@ private:
     uart_inst_t *uart_id_;
     bool begun_ = false;
     LC29HStats stats_ = {};
+
+    // Shared between the parse (timer interrupt) and the firmware: the epoch queue, state_ and the settings
+    critical_section_t lock_;
+    struct repeating_timer parse_timer_;
+    static bool parseTimerCb(struct repeating_timer *t);
+#ifdef LC29H_DEBUG_TIMING
+    uint32_t last_parse_us_ = 0;
+#endif
 
     // UART interrupt: the SDK handler takes no argument, so one static trampoline per UART
     static LC29HDriver *instance_[2];  // indexed by uart_get_index(), set by begin()
@@ -199,20 +215,27 @@ private:
 
     uint8_t rx_ring_[LC29H_RX_RING_SIZE];
     volatile uint16_t rx_w_ = 0;  // written only by onIrq()
-    uint16_t rx_r_ = 0;           // written only by the parse call
+    uint16_t rx_r_ = 0;           // written only by the parse
 
     uint8_t tx_ring_[LC29H_TX_RING_SIZE];
     volatile uint32_t tx_w_ = 0;  // free-running; written only by writeCorrections()
     volatile uint32_t tx_r_ = 0;  // free-running; written by onIrq() (and writeCorrections() with the IRQ off)
 
-    // Line assembler (survives partial sentences between calls)
+    // Line assembler (survives partial sentences between parse calls)
     char line_[128];
     uint16_t line_len_ = 0;
     uint16_t nmea_r_ = 0;  // getNMEA(): read index into the caller's ring
     bool assembleLine(char ch);
-    void dispatchSentence(const char *line, struct RtkState *rtk_state);
+    void handleLine(char *line, uint32_t now_ms);
+    void dispatchSentence(const char *line, struct RtkState *rtk_state);  // getNMEA() only
 
-    // processStreamEpochs() state
+    // Newest values of each sentence type (getState()): written by the parse into state_work_, then copied
+    // into state_ under lock_
+    RtkState state_work_ = {};
+    RtkState state_ = {};
+    void updateState(char **fields, int n);
+
+    // Epoch state (written only by the parse, except the queue: lock_)
     GnssEpoch open_epoch_ = {};  // epoch being assembled
     bool epoch_open_ = false;
     uint32_t epoch_opened_ms_ = 0;
@@ -223,9 +246,9 @@ private:
     uint8_t ready_count_ = 0;
     uint8_t seq_ = 0;  // seq_ of the newest closed epoch
     uint8_t epochs_closed_ = 0;
-    uint32_t now_ms_ = 0;  // time of the current processStreamEpochs() call
+    uint32_t now_ms_ = 0;  // time of the current parse
 
-    void dispatchEpochSentence(char *line, uint32_t now_ms);
+    void dispatchEpochFields(char **fields, int n, uint32_t now_ms);
     void countSentence(const char *line, bool ok);
     void closeEpoch(uint8_t reason);
     void openEpoch(uint32_t now_ms);

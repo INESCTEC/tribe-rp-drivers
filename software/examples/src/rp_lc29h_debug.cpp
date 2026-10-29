@@ -2,7 +2,7 @@
  * rp_lc29h_debug: debug firmware for an LC29H GNSS module (see docs/lc29h.md). Not for production.
  *
  * Shows on USB what the module sends and what the driver makes of it, without CAN or a robot:
- *   epoch mode (default): the driver (begin(), processStreamEpochs() every 10 ms) and its debug lines:
+ *   epoch mode (default): the driver (begin(): it parses every 10 ms itself) and its debug lines:
  *       "E,..." one per closed epoch, "DU/DS/DB/DC/DL,..." every 5 s (LC29HDriver::format*DebugLine*())
  *   sniffer mode (LC29H_DEBUG_SNIFFER): no driver; every raw module line with the RP2040 time of its '\n':
  *       "N,<t_us>,<line>", and every 5 s "D,<t_us>,<bytes>,<lines>,<uart_overrun>,<uart_framing_break>,
@@ -17,7 +17,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "hardware/sync.h"
 #include "hardware/uart.h"
 #include "pico/stdlib.h"
 
@@ -40,7 +39,6 @@
 #endif
 
 #define REPORT_PERIOD_MS 5000
-#define PARSE_PERIOD_MS 10
 #define RTCM_MAX 4096  // largest correction frame payload accepted
 
 // ---------------- board start-up (replaceable) ----------------
@@ -150,18 +148,11 @@ static void mode_poll() {
 // ---------------- epoch mode: the driver ----------------
 #else
 static LC29HDriver gnss(UART_ID);
-static struct repeating_timer parse_timer;
-
-static bool parse_timer_cb(struct repeating_timer *) {
-    gnss.processStreamEpochs(to_ms_since_boot(get_absolute_time()));
-    return true;
-}
 
 static void mode_start() {
     if (!gnss.begin(UART_RX_PIN, UART_TX_PIN, UART_BAUDRATE)) {
-        printf("I,rp_lc29h_debug,begin() failed: the UART interrupt already has a handler\n");
+        printf("I,rp_lc29h_debug,begin() failed: UART interrupt already in use or no timer free\n");
     }
-    add_repeating_timer_ms(-PARSE_PERIOD_MS, parse_timer_cb, NULL, &parse_timer);
     printf("I,rp_lc29h_debug,epochs,uart%u %d baud,sentences %x\n", uart_get_index(UART_ID), UART_BAUDRATE,
            gnss.epochSentences());
 }
@@ -171,9 +162,7 @@ static void send_corrections(uint8_t *data, uint16_t len) {
 }
 
 static void set_epoch_sentences(uint8_t sentences) {
-    uint32_t irq = save_and_disable_interrupts();  // the timer interrupt reads the set
     gnss.setEpochSentences(sentences);
-    restore_interrupts(irq);
     printf("I,rp_lc29h_debug,sentences %x\n", gnss.epochSentences());
 }
 
@@ -181,14 +170,9 @@ static void mode_poll() {
     static char buf[512];
     static uint32_t last_report = 0;
 
-    // Closed epochs: taken with the timer interrupt off (it writes the queue)
-    while (true) {
-        GnssEpoch e;
-        uint32_t irq = save_and_disable_interrupts();
-        bool got = gnss.takeEpoch(&e);
-        restore_interrupts(irq);
-        if (!got)
-            break;
+    // Every closed epoch waiting in the driver's queue
+    GnssEpoch e;
+    while (gnss.takeEpoch(&e)) {
         uint32_t take_ms = to_ms_since_boot(get_absolute_time());
         gnss.formatEpochDebugLine(&e, buf, sizeof(buf));
         // No CAN here: "done" = printed, right after the take
