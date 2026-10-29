@@ -401,73 +401,15 @@ bool LC29HDriver::parseUtcMs(const char *field, uint32_t *utc_ms) {
 }
 
 void LC29HDriver::getNMEA(uint16_t size, RtkState *rtk_state, uint8_t *data) {
-    // Convert uint8_t array to string
-    char nmea_string[size + 1];
-    sprintf(nmea_string, "%s", (char *) data);
-
-    char *ptr = strstr(nmea_string, "$GNGGA");
-    if (ptr != NULL) {
-        // Find the position of the new line from the found index
-        char *new_line_ptr = strchr(ptr, '\n');
-        if (new_line_ptr != NULL) {
-            // Calculate the size of the section to be copied
-            size_t section_length = new_line_ptr - ptr;
-
-            // Create an array to store the copied section
-            char section[section_length + 1];
-
-            // Copy the section to the new array
-            memcpy(section, ptr, section_length);
-            section[section_length] = '\0';  // Add the null terminator
-
-            // Parse GGA and store it
-            if (validateChecksum(section)) {
-                parseGGA(section, rtk_state);
-            }
-        }
+    // Before: re-scanned the buffer from the start on every call and took the FIRST sentence of each type,
+    // i.e. the oldest since the last wrap. Now: only the bytes that arrived since the previous call
+    if (size < nmea_r_) {
+        nmea_r_ = 0;  // the caller's ring wrapped
+        line_len_ = 0;
     }
-
-    ptr = strstr(nmea_string, "$PQTMTAR");
-    if (ptr != NULL) {
-        // Find the position of the new line from the found index
-        char *new_line_ptr = strchr(ptr, '\n');
-        if (new_line_ptr != NULL) {
-            // Calculate the size of the section to be copied
-            size_t section_length = new_line_ptr - ptr;
-
-            // Create an array to store the copied section
-            char section[section_length + 1];
-
-            // Copy the section to the new array
-            memcpy(section, ptr, section_length);
-            section[section_length] = '\0';  // Add the null terminator
-
-            // Parse GGA and store it
-            if (validateChecksum(section)) {
-                parsePQTMTAR(section, rtk_state);
-            }
-        }
-    }
-
-    ptr = strstr(nmea_string, "$GNVTG");
-    if (ptr != NULL) {
-        // Find the position of the new line from the found index
-        char *new_line_ptr = strchr(ptr, '\n');
-        if (new_line_ptr != NULL) {
-            // Calculate the size of the section to be copied
-            size_t section_length = new_line_ptr - ptr;
-
-            // Create an array to store the copied section
-            char section[section_length + 1];
-
-            // Copy the section to the new array
-            memcpy(section, ptr, section_length);
-            section[section_length] = '\0';  // Add the null terminator
-
-            // Parse VTG and store it
-            if (validateChecksum(section)) {
-                parseVTG(section, rtk_state);
-            }
+    while (nmea_r_ < size) {
+        if (assembleLine((char) data[nmea_r_++])) {
+            dispatchSentence(line_, rtk_state);
         }
     }
 }

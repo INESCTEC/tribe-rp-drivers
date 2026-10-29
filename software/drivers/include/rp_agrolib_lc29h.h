@@ -149,7 +149,12 @@ public:
     /// below the fix period. Default GNSS_EPOCH_TIMEOUT_MS (90 ms, for 10 Hz).
     void setEpochTimeoutMs(uint16_t ms) { epoch_timeout_ms_ = ms; }
 
-    void getNMEA(uint16_t size, struct RtkState *rtk_state, uint8_t *data);
+    /// Deprecated: use begin() + processStream(). For firmware that keeps its own RX ring: data is that
+    /// ring and size its write index. Parses only the sentences that arrived since the previous call, so
+    /// rtk_state holds the newest ones. A size smaller than the previous one means the ring wrapped; the
+    /// ring length is unknown here, so the sentence across the wrap is skipped (one update, ~100 ms).
+    [[deprecated("use begin() + processStream()")]] void getNMEA(uint16_t size, struct RtkState *rtk_state,
+                                                                  uint8_t *data);
     void getPQMT(uint16_t in_size, char *pqmt, uint8_t *data, uint16_t *out_size);
     void getPair(uint16_t in_size, char *pair, uint8_t *data, uint16_t *out_size);
 
@@ -179,6 +184,7 @@ private:
     // Line assembler (survives partial sentences between calls)
     char line_[128];
     uint16_t line_len_ = 0;
+    uint16_t nmea_r_ = 0;  // getNMEA(): read index into the caller's ring
     bool assembleLine(char ch);
     void dispatchSentence(const char *line, struct RtkState *rtk_state);
 
