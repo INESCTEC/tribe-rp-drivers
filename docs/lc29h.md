@@ -4,7 +4,7 @@ Driver for the Quectel LC29H GNSS module (tested with the LC29H EA, dual-antenna
 to configure the module and check that everything works.
 
 1. [Overview](#1-overview)
-2. [Quick start](#2-quick-start)
+2. [Example: epochs and RTK corrections](#2-example-epochs-and-rtk-corrections)
 3. [Epochs](#3-epochs)
 4. [RTK corrections](#4-rtk-corrections)
 5. [Simple use without epochs](#5-simple-use-without-epochs)
@@ -42,66 +42,127 @@ Two libraries are built from the same source:
 | `rp_agrolib_lc29h` | production |
 | `rp_agrolib_lc29h_debug` | debugging only: adds timing fields and the debug line formats (`LC29H_DEBUG_TIMING`, section 8) |
 
-### What changed from the previous version
-The previous driver left the UART, its buffer and its interrupt to the firmware, and `getNMEA()` re-read the
-whole buffer on every call. Measured on a TL.Heart (2026-10-23), this lost fixes. Every user now gets the fixes:
-
-| Problem | Fix |
-|---|---|
-| UART RX FIFO off: a byte was lost if the UART interrupt was ~22 µs late (460800 baud) | `begin()` turns the FIFOs on (~700 µs of margin) |
-| `getNMEA()` returned the **oldest** sentence still in the buffer (up to several fixes old) | new sentences only, in arrival order (`processStream()`; `getNMEA()` fixed too) |
-| Position and heading of different fixes mixed | epochs: one fix = one epoch |
-| Only the newest result kept: fixes arriving in a burst were overwritten | queue of `GNSS_EPOCH_QUEUE_MAX` (8) epochs |
-| Corrections written with `uart_write_blocking()` (~22 ms per 1 KB frame, program stopped) | `writeCorrections()` queues and returns at once |
-| `writeCorrections()` took a `uint8_t` size (frames cut at 255 bytes) | `uint16_t` |
-
-The existing methods keep their names and signatures. `uart_setup()` in `rp_agrolib_uart` is unchanged (FIFOs
-off); the new overload `uart_setup(..., bool fifo)` is what `begin()` uses.
-
 ---
 
-## 2. Quick start
+## 2. Example: epochs and RTK corrections
+
+A firmware that takes the module's fixes as epochs and passes RTK corrections to the module. Here the corrections
+come from USB (e.g. a PC or phone running an NTRIP client); from a radio or another UART it is the same call.
 
 ```cpp
+#include "hardware/sync.h"
+#include "pico/stdlib.h"
 #include "rp_agrolib_lc29h.h"
 
-LC29HDriver gnss(uart0);
-struct repeating_timer parse_timer;
+#define GNSS_RX_PIN 1
+#define GNSS_TX_PIN 0
+#define GNSS_BAUDRATE 460800
 
-bool parse_cb(struct repeating_timer *) {
-    gnss.processStreamEpochs(to_ms_since_boot(get_absolute_time()));  // parse what arrived, close epochs
+static LC29HDriver gnss(uart0);
+static struct repeating_timer parse_timer;
+
+// Timer interrupt, every 10 ms: parse the bytes received since the last call and close the epochs of the
+// fixes that are complete. Closed epochs wait in the driver's queue.
+static bool parse_cb(struct repeating_timer *) {
+    gnss.processStreamEpochs(to_ms_since_boot(get_absolute_time()));
     return true;
+}
+
+// Main loop: take the oldest closed epoch, if any (see "Why interrupts are disabled" below)
+static bool take_epoch(GnssEpoch *e) {
+    uint32_t irq = save_and_disable_interrupts();
+    bool got = gnss.takeEpoch(e);
+    restore_interrupts(irq);
+    return got;
+}
+
+// Main loop: pass whatever correction bytes arrived on USB to the module. writeCorrections() only copies
+// them into the driver's TX ring and returns; the UART interrupt sends them
+static void forward_corrections() {
+    static uint8_t buf[512];
+    uint16_t n = 0;
+    int c;
+    while (n < sizeof(buf) && (c = getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT) {
+        buf[n++] = (uint8_t) c;
+    }
+    if (n > 0) {
+        gnss.writeCorrections(buf, n);
+    }
 }
 
 int main() {
     stdio_init_all();
-    gnss.begin(1 /* RX pin */, 0 /* TX pin */, 460800);   // UART, FIFOs, RX/TX rings, interrupt
-    // gnss.setEpochSentences(GNSS_SENTENCE_ALL);         // only if the module sends $PQTMEPE (section 7)
+
+    // Settings first, while no interrupt uses the driver yet
+    gnss.setEpochSentences(GNSS_SENTENCE_DEFAULT);  // GGA + PQTMTAR; GNSS_SENTENCE_ALL if the module sends $PQTMEPE
+    if (!gnss.begin(GNSS_RX_PIN, GNSS_TX_PIN, GNSS_BAUDRATE)) {
+        printf("UART0 interrupt already in use\n");
+    }
     add_repeating_timer_ms(-10, parse_cb, NULL, &parse_timer);
 
     while (true) {
         GnssEpoch e;
-        uint32_t irq = save_and_disable_interrupts();     // the timer interrupt writes the queue
-        bool got = gnss.takeEpoch(&e);
-        restore_interrupts(irq);
-        if (got && (e.flags_ & GNSS_VALID_POSITION)) {
-            printf("%lu %.8f %.8f q%u\n", e.utc_ms_, e.latitude_, e.longitude_, e.fix_quality_);
+        while (take_epoch(&e)) {
+            if (e.flags_ & GNSS_VALID_POSITION) {
+                printf("fix %u utc %lu ms: %.8f %.8f quality %u\n", e.seq_, (unsigned long) e.utc_ms_, e.latitude_,
+                       e.longitude_, e.fix_quality_);
+            }
+            if (e.flags_ & GNSS_VALID_HEADING) {
+                printf("  heading %.2f deg, quality %u\n", e.heading_, e.heading_quality_);
+            }
         }
-        // corrections from wherever they come (phone, radio...):  gnss.writeCorrections(frame, len);
+        forward_corrections();
     }
 }
 ```
 
 Link `rp_agrolib_lc29h` (it brings `rp_agrolib_uart` and `pico_stdlib`).
 
-Rules:
+### Why interrupts are disabled around `takeEpoch()`
+The epoch queue is used from two places at once:
+- **`processStreamEpochs()` runs in the timer interrupt** and adds epochs to the queue: it writes an epoch into
+  the queue's array and increments its count (or, when the queue is full, drops the oldest: moves the head and
+  decrements the count).
+- **`takeEpoch()` runs in the main loop** and removes the oldest epoch: it copies it out (a `GnssEpoch` is about
+  100 bytes, copied in many steps), then moves the head and decrements the count.
+
+An interrupt can stop the main loop between any two instructions. If the timer interrupt runs while
+`takeEpoch()` is half way through:
+- the epoch being copied can be overwritten mid-copy when the queue is full, and the main loop gets half of one
+  fix and half of another;
+- both sides update the count with a read-modify-write (`count = count - 1` in the main loop, `count = count + 1`
+  in the interrupt). If the interrupt runs between the main loop's read and its write, the main loop writes back a
+  stale value: the interrupt's change is lost and the queue's count no longer matches its contents (an epoch
+  vanishes or an old one comes back).
+
+`save_and_disable_interrupts()` stops interrupts on this core for the few microseconds `takeEpoch()` takes, so
+the copy and the count update happen as one step. `restore_interrupts()` puts back the previous state (it does not
+blindly enable: if interrupts were already off, they stay off). An interrupt that becomes due meanwhile is not
+lost: it runs right after `restore_interrupts()`.
+
+Keep the section short: the UART interrupt waits too, and the FIFO gives it ~700 µs of margin at 460800 baud.
+Copy the epoch out and do the work (printing, sending) after `restore_interrupts()`, as above.
+
+When it is **not** needed:
+- if `processStreamEpochs()` is called from the main loop instead of an interrupt (then nothing runs at the same
+  time as `takeEpoch()`);
+- for `writeCorrections()`: it protects its own data inside the driver;
+- for `stats()`: each counter is a 32-bit value, read in one instruction.
+
+The same applies to settings: `setEpochSentences()` and `setEpochTimeoutMs()` change what the interrupt reads, so
+call them before starting the timer (as above), or with interrupts off.
+
+**Two cores:** `save_and_disable_interrupts()` only acts on the core that calls it. Run `processStreamEpochs()`
+and `takeEpoch()` on the same core, or protect them with a `critical_section` (`pico/critical_section.h`), which
+works across cores.
+
+### Rules
 - **Call `begin()` once**, before anything else. It returns `false` if the UART's interrupt already has a
   handler; the firmware must not install its own (`uart_enable_interrupt()`) on that UART. One driver per UART.
 - **Parse regularly**, every ~10 ms. At 460800 baud and 10 Hz the module sends ~3 KB/s; the 1000-byte RX ring
-  holds ~0.3 s. A timer interrupt is fine, so is the main loop.
+  holds ~0.3 s.
 - **Use one parse call:** `processStreamEpochs()` or `processStream()`, not both (each one consumes the ring).
-- If parsing runs in an interrupt, **take epochs with interrupts off**, as above.
-- **Nothing else may write to this UART's TX**, or its bytes get mixed into a correction frame.
+- **Nothing else may write to this UART's TX**, or its bytes get mixed into the corrections.
 
 ---
 
@@ -177,7 +238,6 @@ Without `begin()`, `writeCorrections()` behaves as before: it writes the frame a
 
 ## 5. Simple use without epochs
 
-### `processStream()`
 ```cpp
 RtkState rtk = {};
 gnss.processStream(&rtk);   // after begin(), every ~10 ms
@@ -185,19 +245,6 @@ gnss.processStream(&rtk);   // after begin(), every ~10 ms
 Fills `RtkState` from the newest GGA, PQTMTAR and VTG (speed). Each field holds the newest sentence **of its
 type**: right after a GGA, `heading_` may still be from the previous fix (PQTMTAR arrives ~50 ms later). Use
 epochs when position and heading must belong to the same fix.
-
-### `getNMEA()` (deprecated)
-For firmware that keeps its own RX ring and interrupt. It compiles, with a deprecation warning. It now parses
-only the sentences that arrived since the previous call (before: the oldest one in the buffer). The ring length is
-not known to it, so the sentence across the ring's wrap is skipped (one update, ~100 ms).
-
-Moving to the new API:
-
-| Before | After |
-|---|---|
-| own UART callback + ring, `uart_setup()`, `uart_enable_interrupt()` | `gnss.begin(rx_pin, tx_pin, baud)` |
-| `getNMEA(write_idx, &rtk, ring)` | `gnss.processStream(&rtk)` |
-| `uart_write_blocking(uart, frame, len)` | `gnss.writeCorrections(frame, len)` |
 
 ---
 
@@ -379,7 +426,7 @@ Reading other numbers:
 | `void writeCorrections(data, size)` | queue corrections (non-blocking after `begin()`) |
 | `const LC29HStats &stats()` | counters |
 | `formatEpochDebugLine()`, `formatStatsDebugLines()` | debug lines (`rp_agrolib_lc29h_debug` only) |
-| `getNMEA()` | deprecated (section 5) |
+| `getNMEA()` | deprecated: use `begin()` + `processStream()` |
 | `getPQMT()`, `getPair()` | unchanged |
 
 ### Build-time options
