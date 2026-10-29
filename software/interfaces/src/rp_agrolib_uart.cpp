@@ -2,6 +2,11 @@
 
 int uart_setup(uart_inst_t *bus_id, int rx_pin, int tx_pin, uint baudrate, int data_bits,
                int stop_bits, uart_parity_t parity) {
+    return uart_setup(bus_id, rx_pin, tx_pin, baudrate, data_bits, stop_bits, parity, false);
+}
+
+int uart_setup(uart_inst_t *bus_id, int rx_pin, int tx_pin, uint baudrate, int data_bits,
+               int stop_bits, uart_parity_t parity, bool fifo) {
 
     // There is no guarantee that the baudrate requested will be returned
     // The nearest will be chosen, and this function will return the configured baud rate.
@@ -19,8 +24,8 @@ int uart_setup(uart_inst_t *bus_id, int rx_pin, int tx_pin, uint baudrate, int d
     // Set our data format
     uart_set_format(bus_id, data_bits, stop_bits, parity);
 
-    // Turn off FIFO's - we want to do this character by character
-    uart_set_fifo_enabled(bus_id, false);
+    // FIFOs off by default (character by character); on if asked (see the header)
+    uart_set_fifo_enabled(bus_id, fifo);
 
     // Set up a RX interrupt
     // We need to set up the handler first
