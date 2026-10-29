@@ -92,7 +92,9 @@ struct LC29HStats {
     uint32_t closed[5];                             // epochs closed, by GNSS_CLOSE_* (index 0 unused)
     uint32_t overwritten;  // closed epochs dropped for a newer one before takeEpoch() read them (queue full)
 #ifdef LC29H_DEBUG_TIMING
-    uint32_t irq_max_us;  // debug only: longest UART interrupt (RX + TX)
+    // Debug only; maxima since the previous formatStatsDebugLines()
+    uint32_t irq_max_us;           // longest UART interrupt (RX + TX)
+    uint32_t rx_ring_max_pending;  // most unparsed bytes in the RX ring at a parse call
 #endif
 };
 
@@ -161,6 +163,25 @@ public:
     /// Counters (32-bit reads are atomic on the RP2040).
     const LC29HStats &stats() const { return stats_; }
 
+#ifdef LC29H_DEBUG_TIMING
+    // Debug only: the lines read by scripts/lc29h/gnss_bench_analyze.py. The driver only formats them into
+    // buf (at most size - 1 characters, always terminated); where they go (USB, UART, nowhere) is the
+    // caller's choice. Times are the caller's ms clock modulo 10^7.
+
+    /// "E,seq,utc_ms,sentences,flags,close_reason,opened_ms,tar_after_ms,epe_after_ms,close_after_open_ms"
+    /// (hex sentences/flags, 65535 = not received, no line ending). The caller appends its own
+    /// ",take_after_close_ms,done_after_take_ms" (done = -1: not sent) and the '\n'.
+    int formatEpochDebugLine(const struct GnssEpoch *epoch, char *buf, int size) const;
+
+    /// Counter lines, each ending in '\n' (counters cumulative, maxima since the previous call, then reset):
+    ///   DU,t,rx_bytes,uart_overrun,uart_framing_break,rx_ring_max_pending,irq_max_us
+    ///   DS,t,lines,ok_gga,ok_tar,ok_epe,ok_other,long_lines
+    ///   DB,t,bad_gga,bad_tar,bad_epe,bad_other
+    ///   DC,t,complete,next_gga,repeat,timeout,overwritten
+    ///   DL,t,rx_dropped,rtcm_bytes,rtcm_dropped
+    int formatStatsDebugLines(uint32_t now_ms, char *buf, int size);
+#endif
+
 private:
     uart_inst_t *uart_id_;
     bool begun_ = false;
@@ -172,6 +193,9 @@ private:
     static void uart1Irq();
     void onIrq();  // interrupt context: RX FIFO -> rx_ring_ (+ errors), tx_ring_ -> TX FIFO
     void fillTxFifo();
+#ifdef LC29H_DEBUG_TIMING
+    void notePending(uint16_t w);
+#endif
 
     uint8_t rx_ring_[LC29H_RX_RING_SIZE];
     volatile uint16_t rx_w_ = 0;  // written only by onIrq()

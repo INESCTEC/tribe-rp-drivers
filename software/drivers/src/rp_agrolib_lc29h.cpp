@@ -1,6 +1,7 @@
 #include "../include/rp_agrolib_lc29h.h"
 
 #include "hardware/irq.h"
+#include "hardware/sync.h"
 
 LC29HDriver *LC29HDriver::instance_[2] = {nullptr, nullptr};
 
@@ -111,6 +112,9 @@ void LC29HDriver::writeCorrections(uint8_t *data, uint16_t size) {
 
 void LC29HDriver::processStream(RtkState *rtk_state) {
     uint16_t w = rx_w_;
+#ifdef LC29H_DEBUG_TIMING
+    notePending(w);
+#endif
     while (rx_r_ != w) {
         char ch = (char) rx_ring_[rx_r_];
         rx_r_ = (rx_r_ + 1) % LC29H_RX_RING_SIZE;
@@ -165,6 +169,9 @@ uint8_t LC29HDriver::processStreamEpochs(uint32_t now_ms) {
     now_ms_ = now_ms;
 
     uint16_t w = rx_w_;
+#ifdef LC29H_DEBUG_TIMING
+    notePending(w);
+#endif
     while (rx_r_ != w) {
         char ch = (char) rx_ring_[rx_r_];
         rx_r_ = (rx_r_ + 1) % LC29H_RX_RING_SIZE;
@@ -578,3 +585,42 @@ bool LC29HDriver::validateChecksum(const char *message) {
     }
     return false;
 }
+#ifdef LC29H_DEBUG_TIMING
+void LC29HDriver::notePending(uint16_t w) {
+    uint32_t pending = (w + LC29H_RX_RING_SIZE - rx_r_) % LC29H_RX_RING_SIZE;
+    if (pending > stats_.rx_ring_max_pending) {
+        stats_.rx_ring_max_pending = pending;
+    }
+}
+
+int LC29HDriver::formatEpochDebugLine(const GnssEpoch *e, char *buf, int size) const {
+    int n = snprintf(buf, size, "E,%u,%lu,%x,%x,%u,%lu,%u,%u,%lu", e->seq_, (unsigned long) e->utc_ms_,
+                     e->sentences_, e->flags_, e->close_reason_, (unsigned long) (e->opened_ms_ % 10000000u),
+                     e->tar_after_ms_, e->epe_after_ms_, (unsigned long) (e->closed_ms_ - e->opened_ms_));
+    return n < size ? n : size - 1;
+}
+
+int LC29HDriver::formatStatsDebugLines(uint32_t now_ms, char *buf, int size) {
+    // Snapshot and reset the maxima together (they are written in interrupts)
+    uint32_t irq = save_and_disable_interrupts();
+    uint32_t irq_max = stats_.irq_max_us, ring_max = stats_.rx_ring_max_pending;
+    stats_.irq_max_us = stats_.rx_ring_max_pending = 0;
+    restore_interrupts(irq);
+
+    const LC29HStats &s = stats_;
+    unsigned long t = now_ms % 10000000u;
+    int n = snprintf(buf, size,
+                     "DU,%lu,%lu,%lu,%lu,%lu,%lu\n"
+                     "DS,%lu,%lu,%lu,%lu,%lu,%lu,%lu\n"
+                     "DB,%lu,%lu,%lu,%lu,%lu\n"
+                     "DC,%lu,%lu,%lu,%lu,%lu,%lu\n"
+                     "DL,%lu,%lu,%lu,%lu\n",
+                     t, s.rx_bytes, s.uart_overrun, s.uart_framing_break, ring_max, irq_max,
+                     t, s.lines, s.ok_gga, s.ok_tar, s.ok_epe, s.ok_other, s.long_lines,
+                     t, s.bad_gga, s.bad_tar, s.bad_epe, s.bad_other,
+                     t, s.closed[GNSS_CLOSE_COMPLETE], s.closed[GNSS_CLOSE_NEXT_GGA], s.closed[GNSS_CLOSE_REPEAT],
+                     s.closed[GNSS_CLOSE_TIMEOUT], s.overwritten,
+                     t, s.rx_dropped, s.rtcm_bytes, s.rtcm_dropped);
+    return n < size ? n : size - 1;
+}
+#endif
