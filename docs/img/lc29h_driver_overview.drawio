@@ -1,0 +1,112 @@
+<mxfile host="Electron">
+  <diagram id="lc29h" name="LC29H driver">
+    <mxGraphModel dx="1587" dy="963" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1510" pageHeight="575" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=none;align=left;" value="&lt;b style=&quot;font-size:21px&quot;&gt;LC29H driver: how NMEA becomes epochs, and how RTCM corrections reach the module&lt;/b&gt;" vertex="1">
+          <mxGeometry height="40" width="1470" x="20" y="15" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=#8c8c86;dashed=1;verticalAlign=top;align=left;spacingLeft=10;fontSize=16;" value="&lt;b&gt;LC29HDriver&lt;/b&gt; &amp;nbsp;inside the RP2040 &amp;nbsp;·&amp;nbsp; started by &lt;b&gt;begin(rx, tx, baud, parse_period_ms = 10)&lt;/b&gt;" vertex="1">
+          <mxGeometry height="440" width="880" x="260" y="75" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=#8c8c86;dashed=1;verticalAlign=top;align=left;spacingLeft=10;fontSize=16;" value="&lt;b&gt;Your firmware&lt;/b&gt; &amp;nbsp;·&amp;nbsp; main loop" vertex="1">
+          <mxGeometry height="440" width="290" x="1200" y="75" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#f6f6f4;strokeColor=none;verticalAlign=top;align=left;spacingLeft=10;fontSize=14;fontColor=#55554f;" value="RECEIVE &amp;nbsp;module → driver → you" vertex="1">
+          <mxGeometry height="225" width="850" x="275" y="115" as="geometry" />
+        </mxCell>
+        <mxCell id="c6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#f6f6f4;strokeColor=none;verticalAlign=top;align=left;spacingLeft=10;fontSize=14;fontColor=#55554f;" value="SEND &amp;nbsp;you → driver → module" vertex="1">
+          <mxGeometry height="145" width="850" x="275" y="355" as="geometry" />
+        </mxCell>
+        <mxCell id="c7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#f3effa;strokeColor=#7a5bb5;" value="&lt;b&gt;LC29H module A&lt;/b&gt;&lt;br&gt;&lt;br&gt;sends &lt;b&gt;NMEA&lt;/b&gt; sentences&lt;br&gt;(GGA, PQTMTAR, PQTMEPE…)&lt;br&gt;10 times per second&lt;br&gt;&lt;br&gt;&lt;br&gt;receives &lt;b&gt;RTCM&lt;/b&gt;&lt;br&gt;corrections → RTK" vertex="1">
+          <mxGeometry height="320" width="180" x="30" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="c8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#fff4e5;strokeColor=#d98200;" value="&lt;b&gt;UART interrupt&lt;/b&gt;&lt;br&gt;RX FIFO → ring&lt;br&gt;counts UART errors" vertex="1">
+          <mxGeometry height="95" width="150" x="300" y="175" as="geometry" />
+        </mxCell>
+        <mxCell id="c9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;RX ring&lt;/b&gt;&lt;br&gt;1000 B" vertex="1">
+          <mxGeometry height="65" width="110" x="485" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="c10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#fff4e5;strokeColor=#d98200;" value="&lt;b&gt;Parse timer&lt;/b&gt;&lt;br&gt;every 10 ms&lt;br&gt;&lt;br&gt;bytes → lines&lt;br&gt;checksum → fields&lt;br&gt;groups one fix" vertex="1">
+          <mxGeometry height="125" width="175" x="630" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="c11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;Epoch queue&lt;/b&gt; (8)&lt;br&gt;GGA + PQTMTAR&lt;br&gt;[+ PQTMEPE if configured]" vertex="1">
+          <mxGeometry height="85" width="220" x="900" y="165" as="geometry" />
+        </mxCell>
+        <mxCell id="c12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;RtkState&lt;/b&gt;&lt;br&gt;latest values" vertex="1">
+          <mxGeometry height="50" width="210" x="900" y="265" as="geometry" />
+        </mxCell>
+        <mxCell id="c13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eef7f1;strokeColor=#1f9d63;" value="&lt;b&gt;while (takeEpoch(&amp;amp;e))&lt;/b&gt;&lt;br&gt;use e (send to CAN…)" vertex="1">
+          <mxGeometry height="70" width="240" x="1230" y="175" as="geometry" />
+        </mxCell>
+        <mxCell id="c14" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eef7f1;strokeColor=#1f9d63;" value="&lt;b&gt;getState(&amp;amp;s)&lt;/b&gt; &amp;nbsp;(optional)" vertex="1">
+          <mxGeometry height="50" width="240" x="1230" y="265" as="geometry" />
+        </mxCell>
+        <mxCell id="c15" edge="1" parent="1" source="c7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitY=0.227;" target="c8" value="NMEA bytes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c16" edge="1" parent="1" source="c8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c9" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c17" edge="1" parent="1" source="c9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c10" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c18" edge="1" parent="1" source="c10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitY=0.3;" target="c11" value="epoch closed">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c19" edge="1" parent="1" source="c10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitY=0.85;" target="c12" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c20" edge="1" parent="1" source="c11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c13" value="copy (locked)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c21" edge="1" parent="1" source="c12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c14" value="copy (locked)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=none;align=center;" value="RTCM from the phone (USB)" vertex="1">
+          <mxGeometry height="26" width="240" x="1230" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="c23" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eef7f1;strokeColor=#1f9d63;" value="&lt;b&gt;writeCorrections(buf, n)&lt;/b&gt;&lt;br&gt;returns at once" vertex="1">
+          <mxGeometry height="60" width="240" x="1230" y="405" as="geometry" />
+        </mxCell>
+        <mxCell id="c24" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;TX ring&lt;/b&gt; 8 KB&lt;br&gt;full → frame dropped + counted" vertex="1">
+          <mxGeometry height="70" width="220" x="900" y="400" as="geometry" />
+        </mxCell>
+        <mxCell id="c25" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#fff4e5;strokeColor=#d98200;" value="&lt;b&gt;UART interrupt&lt;/b&gt;&lt;br&gt;TX FIFO half empty →&lt;br&gt;refill from the ring" vertex="1">
+          <mxGeometry height="80" width="230" x="300" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="c26" edge="1" parent="1" source="c22" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" target="c23" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c27" edge="1" parent="1" source="c23" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" target="c24" value="copy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c28" edge="1" parent="1" source="c24" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" target="c25" value="bytes, in the background">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c29" edge="1" parent="1" source="c25" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;entryY=0.89;" target="c7" value="RTCM bytes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c30" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#fff4e5;strokeColor=#d98200;" value="" vertex="1">
+          <mxGeometry height="22" width="22" x="30" y="535" as="geometry" />
+        </mxCell>
+        <mxCell id="c31" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=none;align=left;" value="interrupt: runs by itself, no user code" vertex="1">
+          <mxGeometry height="30" width="330" x="58" y="531" as="geometry" />
+        </mxCell>
+        <mxCell id="c32" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="" vertex="1">
+          <mxGeometry height="22" width="22" x="400" y="535" as="geometry" />
+        </mxCell>
+        <mxCell id="c33" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=none;align=left;" value="buffer inside the driver" vertex="1">
+          <mxGeometry height="30" width="230" x="428" y="531" as="geometry" />
+        </mxCell>
+        <mxCell id="c34" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eef7f1;strokeColor=#1f9d63;" value="" vertex="1">
+          <mxGeometry height="22" width="22" x="670" y="535" as="geometry" />
+        </mxCell>
+        <mxCell id="c35" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=none;align=left;" value="your code: never waits for the module, never disables interrupts" vertex="1">
+          <mxGeometry height="30" width="650" x="698" y="531" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

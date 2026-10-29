@@ -46,6 +46,11 @@ Two libraries are built from the same source:
 
 ## 2. Example: epochs and RTK corrections
 
+How the driver works: the module's NMEA bytes become epochs, and the RTCM corrections go back to the module
+(source: `img/lc29h_driver_overview.drawio`).
+
+![LC29H driver overview](img/lc29h_driver_overview.svg)
+
 A firmware that takes the module's fixes as epochs and passes RTK corrections to the module. Here the corrections
 come from USB (e.g. a PC or phone running an NTRIP client); from a radio or another UART it is the same call.
 
