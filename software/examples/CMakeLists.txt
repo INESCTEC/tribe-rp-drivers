@@ -574,7 +574,7 @@ target_link_libraries(rp_vl6180_w_mlx90641
         )
 
 ##########################################################################
-# LC29H GNSS debug (scripts/lc29h/README.md): epoch mode and sniffer mode
+# LC29H GNSS debug (docs/lc29h.md): epoch mode and sniffer mode
 ##########################################################################
 
 add_executable(rp_lc29h_debug src/rp_lc29h_debug.cpp)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bench run of an LC29H GNSS module through an RP2040 (README.md): the PC plays the phone and records the USB lines.
+"""Bench run of an LC29H GNSS module through an RP2040 (docs/lc29h.md): the PC plays the phone and records the USB lines.
 
 One run = one test step, in its own folder under --out (keep runs outside the repository):
     usb.log      every line from the RP2040 over USB, prefixed with the PC time:   <unix time>\t<line>

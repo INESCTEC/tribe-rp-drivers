@@ -119,7 +119,7 @@ ___
 - [x] Stepper motor driver DRV8825
 - [x] Stepper motor general use
 - [x] Servo motor DRS0101
-- [x] GNSS LC29H (Quectel)
+- [x] GNSS LC29H (Quectel): [guide](docs/lc29h.md)
 - [x] USB power delivery TPS25750DRJKR (Texas)
 - [x] Optical distance sensor GP2Y0E02B
 - [x] LiDAR VL53L4CD ToF

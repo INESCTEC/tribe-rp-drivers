@@ -1,5 +1,5 @@
 /*
- * rp_lc29h_debug: debug firmware for an LC29H GNSS module (see scripts/lc29h/README.md). Not for production.
+ * rp_lc29h_debug: debug firmware for an LC29H GNSS module (see docs/lc29h.md). Not for production.
  *
  * Shows on USB what the module sends and what the driver makes of it, without CAN or a robot:
  *   epoch mode (default): the driver (begin(), processStreamEpochs() every 10 ms) and its debug lines:

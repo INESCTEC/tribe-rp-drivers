@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analysis of gnss_bench.py runs (README.md): what does the module send, and what does the driver make of it?
+"""Analysis of gnss_bench.py runs (docs/lc29h.md): what does the module send, and what does the driver make of it?
 
     python3 gnss_bench_analyze.py <run> [<run> ...]
 
