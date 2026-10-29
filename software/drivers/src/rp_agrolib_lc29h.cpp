@@ -100,6 +100,57 @@ void LC29HDriver::writeCorrections(uint8_t *data, uint16_t size) {
     irq_set_enabled(irq, true);
 }
 
+void LC29HDriver::processStream(RtkState *rtk_state) {
+    uint16_t w = rx_w_;
+    while (rx_r_ != w) {
+        char ch = (char) rx_ring_[rx_r_];
+        rx_r_ = (rx_r_ + 1) % LC29H_RX_RING_SIZE;
+        if (assembleLine(ch)) {
+            dispatchSentence(line_, rtk_state);
+        }
+    }
+}
+
+bool LC29HDriver::assembleLine(char ch) {
+    // Returns true when line_ holds a complete line (without the line ending)
+    if (ch == '\n' || ch == '\r') {
+        if (line_len_ == 0) {
+            return false;
+        }
+        line_[line_len_] = '\0';
+        line_len_ = 0;
+        stats_.lines++;
+        return true;
+    }
+
+    if (ch == '$') {
+        // Start of a new sentence: resync (recovers from lost bytes/overrun)
+        line_len_ = 0;
+    }
+
+    if (line_len_ < sizeof(line_) - 1) {
+        line_[line_len_++] = ch;
+    } else {
+        line_len_ = 0;  // oversized garbage without newline: drop and resync
+        stats_.long_lines++;
+    }
+    return false;
+}
+
+void LC29HDriver::dispatchSentence(const char *line, RtkState *rtk_state) {
+    if (line[0] != '$' || !validateChecksum(line)) {
+        return;
+    }
+
+    if (strncmp(line, "$GNGGA", 6) == 0) {
+        parseGGA(line, rtk_state);
+    } else if (strncmp(line, "$PQTMTAR", 8) == 0) {
+        parsePQTMTAR(line, rtk_state);
+    } else if (strncmp(line, "$GNVTG", 6) == 0) {
+        parseVTG(line, rtk_state);
+    }
+}
+
 void LC29HDriver::getNMEA(uint16_t size, RtkState *rtk_state, uint8_t *data) {
     // Convert uint8_t array to string
     char nmea_string[size + 1];

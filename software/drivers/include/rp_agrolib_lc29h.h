@@ -20,6 +20,8 @@
 
 /// Counters, cumulative since start (only incremented: cheap enough to keep always)
 struct LC29HStats {
+    uint32_t lines;               // complete lines assembled
+    uint32_t long_lines;          // lines longer than the line buffer, dropped
     uint32_t rx_bytes;            // bytes moved from the UART to the RX ring
     uint32_t rx_dropped;          // bytes dropped: RX ring full (the parser was not called often enough)
     uint32_t uart_overrun;        // bytes lost in the UART: its RX FIFO was full
@@ -54,6 +56,11 @@ public:
     /// Without begin(): writes the frame and waits until it is sent, as before.
     void writeCorrections(uint8_t *data, uint16_t size);
 
+    /// After begin(): parses every complete NMEA sentence that arrived since the previous call, in arrival
+    /// order, so rtk_state ends up holding the NEWEST GGA, PQTMTAR and VTG. Call it periodically (e.g. from
+    /// a 10 ms timer). Use either this or processStreamEpochs(), not both: each one consumes the ring.
+    void processStream(struct RtkState *rtk_state);
+
     void getNMEA(uint16_t size, struct RtkState *rtk_state, uint8_t *data);
     void getPQMT(uint16_t in_size, char *pqmt, uint8_t *data, uint16_t *out_size);
     void getPair(uint16_t in_size, char *pair, uint8_t *data, uint16_t *out_size);
@@ -80,6 +87,12 @@ private:
     uint8_t tx_ring_[LC29H_TX_RING_SIZE];
     volatile uint32_t tx_w_ = 0;  // free-running; written only by writeCorrections()
     volatile uint32_t tx_r_ = 0;  // free-running; written by onIrq() (and writeCorrections() with the IRQ off)
+
+    // Line assembler (survives partial sentences between calls)
+    char line_[128];
+    uint16_t line_len_ = 0;
+    bool assembleLine(char ch);
+    void dispatchSentence(const char *line, struct RtkState *rtk_state);
 
     void parseGGA(const char *data, struct RtkState *rtk_state);
     void parseVTG(const char *data, struct RtkState *rtk_state);
