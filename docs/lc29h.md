@@ -21,8 +21,8 @@ to configure the module and check that everything works.
 The module prints NMEA sentences on a UART, several per fix (10 fixes/s on the LC29H EA), and takes RTK
 corrections (RTCM 3) on the same UART. The driver:
 
-- **owns the UART** (`begin()`): it sets it up with the FIFOs on, keeps the received bytes in its own ring and
-  owns the UART interrupt;
+- **owns the UART** (`begin()`): it sets it up with the FIFOs on, receives with **one DMA channel** into its
+  own ring (no interrupt per byte, so no byte waits for the CPU) and owns the UART interrupt (corrections);
 - **parses the sentences** as they arrive and groups those of the same fix into an **epoch** (position, heading,
   position error), kept in a queue until the firmware takes it;
 - **sends corrections** without blocking: `writeCorrections()` queues them and the UART interrupt sends them;
@@ -82,9 +82,9 @@ int main() {
     stdio_init_all();
 
     gnss.setEpochSentences(GNSS_SENTENCE_DEFAULT);  // GGA + PQTMTAR; GNSS_SENTENCE_ALL if the module sends $PQTMEPE
-    // UART, rings, UART interrupt, and a timer that parses what arrives every 10 ms
+    // UART, RX DMA channel, rings, UART interrupt, and a timer that parses what arrives every 10 ms
     if (!gnss.begin(GNSS_RX_PIN, GNSS_TX_PIN, GNSS_BAUDRATE)) {
-        printf("UART0 interrupt already in use, or no timer free\n");
+        printf("UART0 interrupt already in use, or no DMA channel or timer free\n");
     }
 
     while (true) {
@@ -109,7 +109,8 @@ Link `rp_agrolib_lc29h` (it brings `rp_agrolib_uart` and `pico_stdlib`).
 ### What runs where
 | Where | What |
 |---|---|
-| UART interrupt (driver) | moves received bytes into the RX ring; refills the UART with queued corrections |
+| DMA channel (driver, hardware) | moves every received byte into the RX ring as it arrives: no CPU, no interrupt |
+| UART interrupt (driver) | refills the UART with queued corrections |
 | Timer interrupt (driver), every `parse_period_ms` | assembles the new sentences, checks their checksum and stores the ones it uses **as text** (no conversion to numbers: kept short); closes complete epochs into the queue |
 | `takeEpoch()` / `getState()` (firmware) | copy the stored text, then convert it to numbers (`atof`, degrees, flags) in the caller's context |
 | Firmware (main loop, or anywhere) | `takeEpoch()`, `getState()`, `writeCorrections()`, settings, `stats()` |
@@ -148,8 +149,10 @@ too. The firmware never needs to disable interrupts itself.
 
 ### Rules
 - **Call `begin()` once**, before the other calls except the settings. It returns `false` if the UART's interrupt
-  already has a handler (the firmware must not install its own with `uart_enable_interrupt()` on that UART) or no
-  timer is free. One driver per UART.
+  already has a handler (the firmware must not install its own with `uart_enable_interrupt()` on that UART), no
+  DMA channel or no timer is free. One driver per UART.
+- **The driver uses one DMA channel** (of the RP2040's 12), claimed in `begin()` with
+  `dma_claim_unused_channel()`. Other code must claim its channels the same way, not use fixed channel numbers.
 - **Take epochs often enough:** the queue holds 8 (0.8 s at 10 Hz); beyond that the oldest are dropped
   (`stats().overwritten`).
 - **Nothing else may write to this UART's TX**, or its bytes get mixed into the corrections.
@@ -249,9 +252,10 @@ it from one place only (it converts into a copy kept by the driver).
 | Counter | Means | Should be |
 |---|---|---|
 | `rx_bytes` | bytes received from the module | ~3 KB/s at 10 Hz |
-| `uart_overrun` | bytes lost in the UART (its FIFO was full: interrupts blocked too long) | 0 |
-| `uart_framing_break` | framing/break errors (wrong baud rate, wiring) | 0 |
-| `rx_dropped` | bytes dropped: RX ring full (parse calls too rare) | 0 |
+| `uart_overrun` | parse periods in which the UART lost bytes (its FIFO was full). With the DMA it should never happen | 0 |
+| `uart_framing_break` | parse periods with framing/break errors (wrong baud rate, wiring) | 0 |
+| `dma_restarts` | the RX DMA started again before its transfer count ran out (the RP2040 DMA stops at 0): every ~5 days | – |
+| `rx_dropped` | bytes dropped: the DMA went round the RX ring before they were parsed (parse calls too rare) | 0 |
 | `lines`, `long_lines` | lines assembled; lines too long (garbage) | `long_lines` 0 |
 | `ok_*`, `bad_*` | sentences with a valid / failed checksum, by type. `ok_other`: VTG, plus the sentences the driver doesn't use (skipped after their header, checksum not checked) | `bad_*` 0 |
 | `closed[GNSS_CLOSE_*]` | epochs closed, by reason | mostly `COMPLETE` |
@@ -295,7 +299,8 @@ Link `rp_agrolib_lc29h_debug` instead of `rp_agrolib_lc29h`. It defines `LC29H_D
 the firmware alike (it changes the struct layout: never define it only in the firmware). It adds:
 
 - in `GnssEpoch`: `opened_ms_`, `closed_ms_`, `tar_after_ms_`, `epe_after_ms_` (when each sentence arrived);
-- in `LC29HStats`: `irq_max_us` (longest UART interrupt), `rx_ring_max_pending` (fullest RX ring);
+- in `LC29HStats`: `irq_max_us` (longest UART interrupt: corrections), `rx_ring_max_pending` (fullest RX ring),
+  `parse_max_us`, `parse_gap_max_us` (the parse timer);
 - `formatEpochDebugLine()` and `formatStatsDebugLines()`: the lines below, written into a buffer. The driver
   never prints; the firmware decides where the lines go.
 
@@ -388,7 +393,7 @@ Criteria for an epoch-mode run (`report.yaml`):
 | Key | Pass | If not |
 |---|---|---|
 | `epochs_closed_by_rp2040` = `fixes_expected_from_utc` | equal | fixes never parsed: see `uart_overrun`, `rx_ring_dropped` |
-| `rp2040_counters_over_run.uart_overrun` | 0 | the UART interrupt is blocked too long (other interrupts, long interrupts-off sections) |
+| `rp2040_counters_over_run.uart_overrun` | 0 | bytes lost in the UART although the DMA empties it: report it (DMA channel stopped?) |
 | `rp2040_counters_over_run.rx_ring_dropped` | 0 | parse calls too rare |
 | `epochs_not_reported`, `overwritten_before_taken` | 0 | the firmware takes epochs too slowly |
 | `checksum_failed` | 0 | noise, baud rate, wiring |
@@ -411,7 +416,7 @@ Reading other numbers:
 | Method | |
 |---|---|
 | `LC29HDriver(uart_inst_t *uart)` | constructor |
-| `bool begin(rx_pin, tx_pin, baud, parse_period_ms = 10)` | UART (8N1, FIFOs), rings, interrupt, parse timer (0: manual mode) |
+| `bool begin(rx_pin, tx_pin, baud, parse_period_ms = 10)` | UART (8N1, FIFOs), RX DMA channel, rings, interrupt, parse timer (0: manual mode) |
 | `bool takeEpoch(GnssEpoch *)` | oldest closed epoch (protected, call in a loop) |
 | `void setEpochSentences(mask)`, `epochSentences()` | sentence set (default GGA + PQTMTAR) |
 | `void setEpochTimeoutMs(ms)` | epoch timeout (default 90 ms) |
@@ -429,7 +434,7 @@ They change the size of `LC29HDriver` or `GnssEpoch`: set them on the library ta
 
 | Define | Default | |
 |---|---|---|
-| `LC29H_RX_RING_SIZE` | 1000 | bytes of module output kept for the parser (~0.3 s at 10 Hz) |
+| `LC29H_RX_RING_SIZE` | 1024 | bytes of module output kept for the parser (~0.3 s at 10 Hz). A power of two, at most 32768 (DMA ring mode) |
 | `LC29H_TX_RING_SIZE` | 8192 | bytes of corrections waiting for the UART (~8 s at ~1 KB/s) |
 | `LC29H_DEBUG_TIMING` | off | debug fields and line formats; use the `rp_agrolib_lc29h_debug` library |
 

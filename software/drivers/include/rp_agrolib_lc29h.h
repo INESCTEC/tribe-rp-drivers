@@ -5,6 +5,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "hardware/dma.h"
 #include "pico/critical_section.h"
 #include "pico/stdlib.h"
 
@@ -13,14 +14,26 @@
 // Ring sizes. They change the size of LC29HDriver, so override them on the library target
 // (target_compile_definitions(rp_agrolib_lc29h PUBLIC ...)), never only in the firmware
 #ifndef LC29H_RX_RING_SIZE
-#define LC29H_RX_RING_SIZE 1000  // bytes of module output kept for the parser (~0.3-0.4 s at 10 Hz)
+#define LC29H_RX_RING_SIZE 1024  // bytes of module output kept for the parser (~0.3-0.4 s at 10 Hz)
 #endif
+// The DMA writes the RX ring in its ring mode, which wraps on a power of two (at most 2^15)
+static_assert((LC29H_RX_RING_SIZE & (LC29H_RX_RING_SIZE - 1)) == 0 && LC29H_RX_RING_SIZE <= 32768,
+              "LC29H_RX_RING_SIZE must be a power of two, at most 32768");
 #ifndef LC29H_TX_RING_SIZE
 #define LC29H_TX_RING_SIZE 8192  // bytes of corrections waiting for the UART (~8 s at ~1 KB/s)
 #endif
 
 // Longest sentence kept (characters, with the terminating '\0'); longer lines are dropped (LC29HStats::long_lines)
 #define LC29H_LINE_MAX 128
+
+// RX DMA transfer count. The RP2040 DMA stops when the count reaches 0 (it has no endless mode), so the parse
+// starts it again whenever fewer than LC29H_DMA_RESTART_BELOW transfers are left (~5 days at the module's ~5 KB/s)
+#ifndef LC29H_DMA_COUNT
+#define LC29H_DMA_COUNT 0xFFFFFFFFu
+#endif
+#ifndef LC29H_DMA_RESTART_BELOW
+#define LC29H_DMA_RESTART_BELOW 0x80000000u
+#endif
 
 // Default for begin()'s parse period: much shorter than the epoch timeout (it is checked at each parse) and
 // than what the RX ring holds (~0.3 s), long enough not to add interrupts for nothing
@@ -89,10 +102,12 @@ struct GnssEpoch {
 struct LC29HStats {
     uint32_t lines;               // complete lines assembled
     uint32_t long_lines;          // lines longer than the line buffer, dropped
-    uint32_t rx_bytes;            // bytes moved from the UART to the RX ring
-    uint32_t rx_dropped;          // bytes dropped: RX ring full (the parser was not called often enough)
-    uint32_t uart_overrun;        // bytes lost in the UART: its RX FIFO was full
-    uint32_t uart_framing_break;  // framing or break errors
+    uint32_t rx_bytes;            // bytes moved by the DMA from the UART to the RX ring
+    uint32_t rx_dropped;          // bytes dropped: the DMA went round the RX ring past bytes not parsed yet
+                                  // (the parser was not called often enough)
+    uint32_t uart_overrun;        // parse periods in which the UART lost bytes (its RX FIFO was full)
+    uint32_t uart_framing_break;  // parse periods with framing or break errors
+    uint32_t dma_restarts;        // RX DMA started again before its count ran out (every ~5 days)
     uint32_t rtcm_bytes;          // correction bytes queued by writeCorrections()
     uint32_t rtcm_dropped;        // correction frames dropped: no room in the TX ring
     uint32_t ok_gga, ok_tar, ok_epe;  // valid checksum, by sentence
@@ -103,7 +118,7 @@ struct LC29HStats {
     uint32_t overwritten;  // closed epochs dropped for a newer one before takeEpoch() read them (queue full)
 #ifdef LC29H_DEBUG_TIMING
     // Debug only; maxima since the previous formatStatsDebugLines()
-    uint32_t irq_max_us;           // longest UART interrupt (RX + TX)
+    uint32_t irq_max_us;           // longest UART interrupt (TX: corrections)
     uint32_t rx_ring_max_pending;  // most unparsed bytes in the RX ring at a parse call
     uint32_t parse_max_us;         // longest parse call
     uint32_t parse_gap_max_us;     // longest time between two parse calls
@@ -125,11 +140,12 @@ class LC29HDriver {
 public:
     LC29HDriver(uart_inst_t *uart_id);
 
-    /// Sets up the UART (8N1, RX/TX FIFOs on), the RX ring, the UART interrupt and a timer that parses the
-    /// received sentences every parse_period_ms (in the timer interrupt). From here on the driver owns this
-    /// UART's interrupt: the firmware must not call uart_enable_interrupt() on it. parse_period_ms = 0:
-    /// no timer, the firmware calls process() itself. Returns false if the UART's interrupt already has a
-    /// handler (another driver or the firmware) or no timer is free.
+    /// Sets up the UART (8N1, RX/TX FIFOs on), one DMA channel that moves every received byte into the RX ring
+    /// (no CPU, no interrupt), the UART interrupt (sends the corrections) and a timer that parses the received
+    /// sentences every parse_period_ms (in the timer interrupt). From here on the driver owns this UART's
+    /// interrupt: the firmware must not call uart_enable_interrupt() on it. parse_period_ms = 0: no timer, the
+    /// firmware calls process() itself. Returns false if the UART's interrupt already has a handler (another
+    /// driver or the firmware), no DMA channel is free or no timer is free.
     bool begin(int rx_pin, int tx_pin, uint baudrate, uint16_t parse_period_ms = LC29H_PARSE_PERIOD_MS);
 
     /// After begin(): queues a correction frame for the module and returns at once; the UART interrupt
@@ -190,7 +206,7 @@ public:
     int formatEpochDebugLine(const struct GnssEpoch *epoch, char *buf, int size) const;
 
     /// Counter lines, each ending in '\n' (counters cumulative, maxima since the previous call, then reset):
-    ///   DU,t,rx_bytes,uart_overrun,uart_framing_break,rx_ring_max_pending,irq_max_us
+    ///   DU,t,rx_bytes,uart_overrun,uart_framing_break,rx_ring_max_pending,irq_max_us (TX)
     ///   DS,t,lines,ok_gga,ok_tar,ok_epe,ok_other,long_lines
     ///   DB,t,bad_gga,bad_tar,bad_epe,bad_other
     ///   DC,t,complete,next_gga,repeat,timeout,overwritten
@@ -215,15 +231,21 @@ private:
     static LC29HDriver *instance_[2];  // indexed by uart_get_index(), set by begin()
     static void uart0Irq();
     static void uart1Irq();
-    void onIrq();  // interrupt context: RX FIFO -> rx_ring_ (+ errors), tx_ring_ -> TX FIFO
+    void onIrq();  // interrupt context: tx_ring_ -> TX FIFO
     void fillTxFifo();
+
+    // RX: the DMA channel writes rx_ring_ (aligned to its size for the DMA ring mode); the parse reads it
+    int rx_dma_ = -1;
+    uint32_t rx_dma_last_count_ = 0;  // DMA transfer count at the previous parse
+    uint16_t rxWriteIndex() const;
+    void restartRxDma(uint16_t w);
+    void countUartErrors();
 #ifdef LC29H_DEBUG_TIMING
     void notePending(uint16_t w);
 #endif
 
-    uint8_t rx_ring_[LC29H_RX_RING_SIZE];
-    volatile uint16_t rx_w_ = 0;  // written only by onIrq()
-    uint16_t rx_r_ = 0;           // written only by the parse
+    alignas(LC29H_RX_RING_SIZE) uint8_t rx_ring_[LC29H_RX_RING_SIZE];
+    uint16_t rx_r_ = 0;  // written only by the parse
 
     uint8_t tx_ring_[LC29H_TX_RING_SIZE];
     volatile uint32_t tx_w_ = 0;  // free-running; written only by writeCorrections()

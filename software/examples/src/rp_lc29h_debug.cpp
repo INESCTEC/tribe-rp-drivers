@@ -151,7 +151,7 @@ static LC29HDriver gnss(UART_ID);
 
 static void mode_start() {
     if (!gnss.begin(UART_RX_PIN, UART_TX_PIN, UART_BAUDRATE)) {
-        printf("I,rp_lc29h_debug,begin() failed: UART interrupt already in use or no timer free\n");
+        printf("I,rp_lc29h_debug,begin() failed: UART interrupt already in use, or no DMA channel or timer free\n");
     }
     printf("I,rp_lc29h_debug,epochs,uart%u %d baud,sentences %x\n", uart_get_index(UART_ID), UART_BAUDRATE,
            gnss.epochSentences());

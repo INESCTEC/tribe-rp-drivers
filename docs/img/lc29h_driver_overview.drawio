@@ -22,10 +22,10 @@
         <mxCell id="c7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#f3effa;strokeColor=#7a5bb5;" value="&lt;b&gt;LC29H module A&lt;/b&gt;&lt;br&gt;&lt;br&gt;sends &lt;b&gt;NMEA&lt;/b&gt; sentences&lt;br&gt;(GGA, PQTMTAR, PQTMEPE…)&lt;br&gt;10 times per second&lt;br&gt;&lt;br&gt;&lt;br&gt;receives &lt;b&gt;RTCM&lt;/b&gt;&lt;br&gt;corrections → RTK" vertex="1">
           <mxGeometry height="320" width="180" x="30" y="150" as="geometry" />
         </mxCell>
-        <mxCell id="c8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#fff4e5;strokeColor=#d98200;" value="&lt;b&gt;UART interrupt&lt;/b&gt;&lt;br&gt;RX FIFO → ring&lt;br&gt;counts UART errors" vertex="1">
+        <mxCell id="c8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eeeeec;strokeColor=#8c8c86;" value="&lt;b&gt;DMA channel&lt;/b&gt;&lt;br&gt;RX FIFO → ring&lt;br&gt;hardware: no CPU,&lt;br&gt;no interrupt" vertex="1">
           <mxGeometry height="95" width="150" x="300" y="175" as="geometry" />
         </mxCell>
-        <mxCell id="c9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;RX ring&lt;/b&gt;&lt;br&gt;1000 B" vertex="1">
+        <mxCell id="c9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;RX ring&lt;/b&gt;&lt;br&gt;1024 B" vertex="1">
           <mxGeometry height="65" width="110" x="485" y="190" as="geometry" />
         </mxCell>
         <mxCell id="c10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#fff4e5;strokeColor=#d98200;" value="&lt;b&gt;Parse timer&lt;/b&gt;&lt;br&gt;every 10 ms&lt;br&gt;&lt;br&gt;bytes → lines&lt;br&gt;checksum, keeps text&lt;br&gt;groups one fix" vertex="1">
@@ -92,19 +92,25 @@
           <mxGeometry height="22" width="22" x="30" y="535" as="geometry" />
         </mxCell>
         <mxCell id="c31" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=none;align=left;" value="interrupt: runs by itself, no user code" vertex="1">
-          <mxGeometry height="30" width="330" x="58" y="531" as="geometry" />
+          <mxGeometry height="30" width="290" x="58" y="531" as="geometry" />
         </mxCell>
         <mxCell id="c32" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="" vertex="1">
-          <mxGeometry height="22" width="22" x="400" y="535" as="geometry" />
+          <mxGeometry height="22" width="22" x="590" y="535" as="geometry" />
         </mxCell>
         <mxCell id="c33" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=none;align=left;" value="buffer inside the driver" vertex="1">
-          <mxGeometry height="30" width="230" x="428" y="531" as="geometry" />
+          <mxGeometry height="30" width="200" x="618" y="531" as="geometry" />
         </mxCell>
         <mxCell id="c34" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eef7f1;strokeColor=#1f9d63;" value="" vertex="1">
-          <mxGeometry height="22" width="22" x="670" y="535" as="geometry" />
+          <mxGeometry height="22" width="22" x="820" y="535" as="geometry" />
         </mxCell>
         <mxCell id="c35" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=none;align=left;" value="your code: never waits for the module, never disables interrupts" vertex="1">
-          <mxGeometry height="30" width="650" x="698" y="531" as="geometry" />
+          <mxGeometry height="30" width="650" x="848" y="531" as="geometry" />
+        </mxCell>
+        <mxCell id="c40" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eeeeec;strokeColor=#8c8c86;" value="" vertex="1">
+          <mxGeometry height="22" width="22" x="355" y="535" as="geometry" />
+        </mxCell>
+        <mxCell id="c41" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=none;align=left;" value="DMA: hardware, no CPU" vertex="1">
+          <mxGeometry height="30" width="210" x="383" y="531" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>

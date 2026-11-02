@@ -162,6 +162,7 @@ pico_enable_stdio_uart(rp_agrolib_lc29h 0)
 target_link_libraries(rp_agrolib_lc29h PUBLIC
         rp_agrolib_uart
         pico_stdlib
+        hardware_dma
         # Outras bibliotecas necessárias
         )
 
@@ -186,6 +187,7 @@ target_compile_definitions(rp_agrolib_lc29h_debug PUBLIC LC29H_DEBUG_TIMING)
 target_link_libraries(rp_agrolib_lc29h_debug PUBLIC
         rp_agrolib_uart
         pico_stdlib
+        hardware_dma
         )
 
 target_include_directories(rp_agrolib_lc29h_debug PUBLIC

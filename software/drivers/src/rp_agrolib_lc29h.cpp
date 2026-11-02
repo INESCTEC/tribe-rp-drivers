@@ -13,16 +13,34 @@ bool LC29HDriver::begin(int rx_pin, int tx_pin, uint baudrate, uint16_t parse_pe
     if (instance_[index] != nullptr || irq_has_handler(irq)) {
         return false;
     }
+    rx_dma_ = dma_claim_unused_channel(false);
+    if (rx_dma_ < 0) {
+        return false;
+    }
     critical_section_init(&lock_);
     uart_setup(uart_id_, rx_pin, tx_pin, baudrate, 8, 1, UART_PARITY_NONE, true);
     instance_[index] = this;
     irq_set_exclusive_handler(irq, index == 0 ? uart0Irq : uart1Irq);
 
-    // RX interrupt at >= 4 bytes in the FIFO or after 32 idle bit periods (SDK); TX interrupt (enabled
-    // only while corrections wait) when the TX FIFO drains to <= 1/2 (16 bytes)
-    uart_set_irqs_enabled(uart_id_, true, false);
+    // The UART interrupt only sends the corrections: TX interrupt (enabled only while corrections wait) when the
+    // TX FIFO drains to <= 1/2 (16 bytes). No RX interrupt: the DMA below moves the received bytes
+    uart_set_irqs_enabled(uart_id_, false, false);
     hw_write_masked(&uart_get_hw(uart_id_)->ifls, 2 << UART_UARTIFLS_TXIFLSEL_LSB, UART_UARTIFLS_TXIFLSEL_BITS);
     irq_set_enabled(irq, true);
+
+    // RX by DMA: every byte goes from the UART FIFO into rx_ring_ as soon as it arrives, without the CPU, so no
+    // byte waits for an interrupt (however long other interrupts take). The write address wraps on the ring.
+    // IRQ_QUIET and no DMA interrupt: see restartRxDma() (RP2040-E13)
+    dma_channel_config cfg = dma_channel_get_default_config(rx_dma_);
+    channel_config_set_transfer_data_size(&cfg, DMA_SIZE_8);
+    channel_config_set_read_increment(&cfg, false);
+    channel_config_set_write_increment(&cfg, true);
+    channel_config_set_ring(&cfg, true, __builtin_ctz(LC29H_RX_RING_SIZE));
+    channel_config_set_dreq(&cfg, uart_get_dreq_num(uart_id_, false));
+    channel_config_set_irq_quiet(&cfg, true);
+    uart_get_hw(uart_id_)->icr = UART_UARTRIS_OERIS_BITS | UART_UARTRIS_BERIS_BITS | UART_UARTRIS_FERIS_BITS;
+    dma_channel_configure(rx_dma_, &cfg, rx_ring_, &uart_get_hw(uart_id_)->dr, LC29H_DMA_COUNT, true);
+    rx_dma_last_count_ = LC29H_DMA_COUNT;
     begun_ = true;
 
     // Negative period: from the start of one call to the start of the next, whatever the call lasts
@@ -51,26 +69,7 @@ void LC29HDriver::onIrq() {
 #endif
     uart_hw_t *hw = uart_get_hw(uart_id_);
 
-    // RX: drain the whole FIFO. The data register carries the byte's error flags in bits 8-11
-    while (!(hw->fr & UART_UARTFR_RXFE_BITS)) {
-        uint32_t dr = hw->dr;
-        if (dr & UART_UARTDR_OE_BITS) {
-            stats_.uart_overrun++;  // the FIFO was full: bytes before this one were lost
-        }
-        if (dr & (UART_UARTDR_FE_BITS | UART_UARTDR_BE_BITS)) {
-            stats_.uart_framing_break++;
-        }
-        uint16_t next = (rx_w_ + 1) % LC29H_RX_RING_SIZE;
-        if (next == rx_r_) {
-            stats_.rx_dropped++;  // ring full: keep the older bytes, the parser will resync on '$'
-            continue;
-        }
-        rx_ring_[rx_w_] = (uint8_t) dr;
-        rx_w_ = next;
-        stats_.rx_bytes++;
-    }
-
-    // TX: refill from the corrections ring; stop the TX interrupt when there is nothing left, since it
+    // TX only (reception is by DMA): refill from the corrections ring; stop the TX interrupt when there is nothing left, since it
     // would keep firing on an empty FIFO
     fillTxFifo();
     if (tx_r_ == tx_w_) {
@@ -129,10 +128,26 @@ uint8_t LC29HDriver::process(uint32_t now_ms) {
     }
     last_parse_us_ = t_in;
 #endif
+    if (!begun_) {
+        return 0;
+    }
     epochs_closed_ = 0;
     now_ms_ = now_ms;
 
-    uint16_t w = rx_w_;
+    // Where the DMA has written up to, and how many bytes it wrote since the previous parse
+    uint32_t count = dma_channel_hw_addr(rx_dma_)->transfer_count;
+    uint16_t w = rxWriteIndex();
+    uint32_t arrived = rx_dma_last_count_ - count;
+    rx_dma_last_count_ = count;
+    stats_.rx_bytes += arrived;
+    if (arrived >= LC29H_RX_RING_SIZE) {
+        // The DMA went round the ring past bytes not parsed yet (parse calls too rare): drop them and resync
+        stats_.rx_dropped += arrived;
+        rx_r_ = w;
+        line_len_ = 0;
+        line_skip_ = false;
+    }
+    countUartErrors();
 #ifdef LC29H_DEBUG_TIMING
     notePending(w);
 #endif
@@ -142,6 +157,12 @@ uint8_t LC29HDriver::process(uint32_t now_ms) {
         if (assembleLine(ch)) {
             handleLine(line_, line_done_len_, now_ms);
         }
+    }
+
+    // The DMA stops when its transfer count reaches 0 (the RP2040 DMA has no endless mode), and the received bytes
+    // would then be lost. So it is started again from here, long before: ~every 5 days at what the module sends
+    if (count < LC29H_DMA_RESTART_BELOW) {
+        restartRxDma(w);
     }
 
     // An epoch that never completes (a sentence missing or lost) is closed as it is
@@ -156,6 +177,40 @@ uint8_t LC29HDriver::process(uint32_t now_ms) {
     }
 #endif
     return epochs_closed_;
+}
+
+uint16_t LC29HDriver::rxWriteIndex() const {
+    return (uint16_t) ((dma_channel_hw_addr(rx_dma_)->write_addr - (uint32_t) rx_ring_) % LC29H_RX_RING_SIZE);
+}
+
+void LC29HDriver::restartRxDma(uint16_t w) {
+    // Stop the channel and start it again with a full count, from where it stopped in the ring. Bytes that arrive
+    // meanwhile (a few us) wait in the UART RX FIFO (32 bytes, ~600 us at 460800 baud), so none is lost.
+    // RP2040-E13: after an abort, the ABORT bit clears before a transfer in flight (byte read, not yet written) is
+    // finished. dma_channel_abort() waits on CTRL.BUSY instead (pico-sdk), so the write address read below is final.
+    // E13 may also set the channel's completion flag: harmless, the channel is IRQ_QUIET and no DMA interrupt is used
+    dma_channel_abort(rx_dma_);
+    uint16_t next = rxWriteIndex();
+    stats_.rx_bytes += (uint16_t) (next - w) % LC29H_RX_RING_SIZE;  // written after this parse read the count
+    dma_channel_set_write_addr(rx_dma_, &rx_ring_[next], false);
+    dma_channel_set_trans_count(rx_dma_, LC29H_DMA_COUNT, true);
+    rx_dma_last_count_ = LC29H_DMA_COUNT;
+    stats_.dma_restarts++;
+}
+
+void LC29HDriver::countUartErrors() {
+    // With the DMA, a received byte's error flags are not read with it: the UART's raw status keeps them until
+    // cleared, so they are counted once per parse period in which they happened. The overrun should never happen
+    // (the DMA empties the FIFO as bytes arrive)
+    uart_hw_t *hw = uart_get_hw(uart_id_);
+    uint32_t ris = hw->ris;
+    if (ris & UART_UARTRIS_OERIS_BITS) {
+        stats_.uart_overrun++;
+    }
+    if (ris & (UART_UARTRIS_BERIS_BITS | UART_UARTRIS_FERIS_BITS)) {
+        stats_.uart_framing_break++;
+    }
+    hw->icr = ris & (UART_UARTRIS_OERIS_BITS | UART_UARTRIS_BERIS_BITS | UART_UARTRIS_FERIS_BITS);
 }
 
 void LC29HDriver::handleLine(const char *line, uint16_t len, uint32_t now_ms) {
