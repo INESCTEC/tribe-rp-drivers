@@ -28,7 +28,7 @@
         <mxCell id="c9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;RX ring&lt;/b&gt;&lt;br&gt;1000 B" vertex="1">
           <mxGeometry height="65" width="110" x="485" y="190" as="geometry" />
         </mxCell>
-        <mxCell id="c10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#fff4e5;strokeColor=#d98200;" value="&lt;b&gt;Parse timer&lt;/b&gt;&lt;br&gt;every 10 ms&lt;br&gt;&lt;br&gt;bytes → lines&lt;br&gt;checksum → fields&lt;br&gt;groups one fix" vertex="1">
+        <mxCell id="c10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#fff4e5;strokeColor=#d98200;" value="&lt;b&gt;Parse timer&lt;/b&gt;&lt;br&gt;every 10 ms&lt;br&gt;&lt;br&gt;bytes → lines&lt;br&gt;checksum, keeps text&lt;br&gt;groups one fix" vertex="1">
           <mxGeometry height="125" width="175" x="630" y="160" as="geometry" />
         </mxCell>
         <mxCell id="c11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;Epoch queue&lt;/b&gt; (8)&lt;br&gt;GGA + PQTMTAR&lt;br&gt;[+ PQTMEPE if configured]" vertex="1">
@@ -58,10 +58,10 @@
         <mxCell id="c19" edge="1" parent="1" source="c10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitY=0.85;" target="c12" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="c20" edge="1" parent="1" source="c11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c13" value="copy (locked)">
+        <mxCell id="c20" edge="1" parent="1" source="c11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c13" value="copy (locked)&lt;br&gt;+ convert">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="c21" edge="1" parent="1" source="c12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c14" value="copy (locked)">
+        <mxCell id="c21" edge="1" parent="1" source="c12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c14" value="copy (locked)&lt;br&gt;+ convert">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="c22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=none;align=center;" value="RTCM from the phone (USB)" vertex="1">

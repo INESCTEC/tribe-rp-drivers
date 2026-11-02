@@ -110,7 +110,8 @@ Link `rp_agrolib_lc29h` (it brings `rp_agrolib_uart` and `pico_stdlib`).
 | Where | What |
 |---|---|
 | UART interrupt (driver) | moves received bytes into the RX ring; refills the UART with queued corrections |
-| Timer interrupt (driver), every `parse_period_ms` | parses the new sentences, closes complete epochs into the queue, updates the state for `getState()` |
+| Timer interrupt (driver), every `parse_period_ms` | assembles the new sentences, checks their checksum and stores the ones it uses **as text** (no conversion to numbers: kept short); closes complete epochs into the queue |
+| `takeEpoch()` / `getState()` (firmware) | copy the stored text, then convert it to numbers (`atof`, degrees, flags) in the caller's context |
 | Firmware (main loop, or anywhere) | `takeEpoch()`, `getState()`, `writeCorrections()`, settings, `stats()` |
 
 `begin()`'s last argument is the parse period, `LC29H_PARSE_PERIOD_MS` (10 ms) by default. It must stay much
@@ -118,11 +119,16 @@ shorter than the epoch timeout (90 ms), which is only checked when the parse run
 (~0.3 s at 10 Hz); much shorter than 10 ms only adds interrupts. At other fix rates, change it together with
 `setEpochTimeoutMs()`.
 
+The parse runs in an interrupt, so it is kept as short as possible: sentences the driver doesn't use (RMC, GLL,
+GSA, GSV…, most of what the module sends) are skipped after their 6-character header, and the ones it uses (GGA,
+PQTMTAR, PQTMEPE, VTG) are only checked and copied. Converting text to numbers is slow on the RP2040, which has no
+floating-point unit, so it happens in `takeEpoch()` and `getState()` instead.
+
 ### Why the driver disables interrupts inside `takeEpoch()`
 The epoch queue is used from two places at once:
 - **the parse, in the timer interrupt,** adds epochs: it writes an epoch into the queue's array and increments
   its count (or, when the queue is full, drops the oldest: moves the head and decrements the count);
-- **`takeEpoch()`, in the firmware,** removes the oldest: it copies it out (a `GnssEpoch` is about 100 bytes,
+- **`takeEpoch()`, in the firmware,** removes the oldest: it copies it out (the stored sentences, ~500 bytes,
   copied in many steps), then moves the head and decrements the count.
 
 An interrupt can stop the firmware between any two instructions. If the parse ran while `takeEpoch()` is half way
@@ -136,8 +142,8 @@ through:
 So `takeEpoch()` copies the epoch and updates the count inside a **critical section**
 (`critical_section_enter_blocking()` … `critical_section_exit()`, from `pico/critical_section.h`). It disables
 interrupts on the calling core and takes a hardware spin lock, so the parse can't run in between, on this core or
-the other one. It lasts a few microseconds. An interrupt that becomes due meanwhile is not lost: it runs right
-after. The parse holds the same lock only while it writes into the queue, and `getState()` and the setters use it
+the other one. It lasts a few microseconds (only bytes are copied; the conversion to numbers comes after, outside
+it). An interrupt that becomes due meanwhile is not lost: it runs right after. The parse holds the same lock only while it writes into the queue, and `getState()` and the setters use it
 too. The firmware never needs to disable interrupts itself.
 
 ### Rules
@@ -228,9 +234,11 @@ Without `begin()`, `writeCorrections()` behaves as before: it writes the frame a
 RtkState rtk;
 gnss.getState(&rtk);   // after begin(), whenever needed
 ```
-Copies the newest GGA, PQTMTAR and VTG (speed) values, kept up to date by the same parse as the epochs. Each field holds the newest sentence **of its
-type**: right after a GGA, `heading_` may still be from the previous fix (PQTMTAR arrives ~50 ms later). Use
-epochs when position and heading must belong to the same fix.
+Copies the newest GGA, PQTMTAR and VTG (speed) values, kept up to date by the same parse as the epochs (it keeps
+the newest sentence of each type as text; `getState()` converts them). Each field holds the newest sentence **of its
+type**: right after a GGA, `heading_` may still be from the previous fix (PQTMTAR arrives ~50 ms later). An empty
+field keeps the value of the previous call. Use epochs when position and heading must belong to the same fix. Call
+it from one place only (it converts into a copy kept by the driver).
 
 ---
 
@@ -245,7 +253,7 @@ epochs when position and heading must belong to the same fix.
 | `uart_framing_break` | framing/break errors (wrong baud rate, wiring) | 0 |
 | `rx_dropped` | bytes dropped: RX ring full (parse calls too rare) | 0 |
 | `lines`, `long_lines` | lines assembled; lines too long (garbage) | `long_lines` 0 |
-| `ok_*`, `bad_*` | sentences with a valid / failed checksum, by type | `bad_*` 0 |
+| `ok_*`, `bad_*` | sentences with a valid / failed checksum, by type. `ok_other`: VTG, plus the sentences the driver doesn't use (skipped after their header, checksum not checked) | `bad_*` 0 |
 | `closed[GNSS_CLOSE_*]` | epochs closed, by reason | mostly `COMPLETE` |
 | `overwritten` | epochs dropped before `takeEpoch()` (queue full) | 0 |
 | `rtcm_bytes`, `rtcm_dropped` | correction bytes queued; frames dropped (TX ring full) | `rtcm_dropped` 0 |

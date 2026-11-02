@@ -19,6 +19,9 @@
 #define LC29H_TX_RING_SIZE 8192  // bytes of corrections waiting for the UART (~8 s at ~1 KB/s)
 #endif
 
+// Longest sentence kept (characters, with the terminating '\0'); longer lines are dropped (LC29HStats::long_lines)
+#define LC29H_LINE_MAX 128
+
 // Default for begin()'s parse period: much shorter than the epoch timeout (it is checked at each parse) and
 // than what the RX ring holds (~0.3 s), long enough not to add interrupts for nothing
 #define LC29H_PARSE_PERIOD_MS 10
@@ -92,7 +95,9 @@ struct LC29HStats {
     uint32_t uart_framing_break;  // framing or break errors
     uint32_t rtcm_bytes;          // correction bytes queued by writeCorrections()
     uint32_t rtcm_dropped;        // correction frames dropped: no room in the TX ring
-    uint32_t ok_gga, ok_tar, ok_epe, ok_other;      // valid checksum, by sentence
+    uint32_t ok_gga, ok_tar, ok_epe;  // valid checksum, by sentence
+    uint32_t ok_other;                // other lines: VTG (checked), and the sentences the driver does not use,
+                                      // skipped after their header without checking the checksum
     uint32_t bad_gga, bad_tar, bad_epe, bad_other;  // checksum failed (or no checksum), by sentence prefix
     uint32_t closed[5];                             // epochs closed, by GNSS_CLOSE_* (index 0 unused)
     uint32_t overwritten;  // closed epochs dropped for a newer one before takeEpoch() read them (queue full)
@@ -135,11 +140,14 @@ public:
 
     /// Copies the oldest closed epoch not yet taken into *epoch. Returns false if there is none. Call it in a
     /// loop until it returns false: several epochs may be waiting. Safe from anywhere (it protects the queue
-    /// from the parse timer, on either core).
+    /// from the parse timer, on either core). The parse only stores the sentences as text; they are converted
+    /// to numbers here, in the caller's context.
     bool takeEpoch(struct GnssEpoch *epoch);
 
     /// Copies the newest GGA, PQTMTAR and VTG values into *rtk_state. Each field holds the newest sentence of
-    /// its type, so position and heading may belong to different fixes: use epochs when that matters.
+    /// its type, so position and heading may belong to different fixes: use epochs when that matters. An empty
+    /// field keeps the value of the previous call. The sentences are converted here, in the caller's context:
+    /// call it from one place only (not from two cores at once).
     void getState(struct RtkState *rtk_state);
 
     /// Sentences that make up an epoch (GNSS_SENTENCE_*). GGA is always included (it opens the epoch and
@@ -221,41 +229,55 @@ private:
     volatile uint32_t tx_w_ = 0;  // free-running; written only by writeCorrections()
     volatile uint32_t tx_r_ = 0;  // free-running; written by onIrq() (and writeCorrections() with the IRQ off)
 
-    // Line assembler (survives partial sentences between parse calls)
-    char line_[128];
+    // Line assembler (survives partial sentences between parse calls). Sentences the driver does not use are
+    // skipped after their header (line_skip_)
+    char line_[LC29H_LINE_MAX];
     uint16_t line_len_ = 0;
+    uint16_t line_done_len_ = 0;  // length of the complete line in line_
+    bool line_skip_ = false;
     uint16_t nmea_r_ = 0;  // getNMEA(): read index into the caller's ring
     bool assembleLine(char ch);
-    void handleLine(char *line, uint32_t now_ms);
+    void handleLine(const char *line, uint16_t len, uint32_t now_ms);
     void dispatchSentence(const char *line, struct RtkState *rtk_state);  // getNMEA() only
 
-    // Newest values of each sentence type (getState()): written by the parse into state_work_, then copied
-    // into state_ under lock_
-    RtkState state_work_ = {};
+    // Newest GGA, PQTMTAR and VTG as received (written by the parse under lock_); getState() converts them
+    // into state_, which keeps the values of empty fields
+    char state_gga_[LC29H_LINE_MAX] = "";
+    char state_tar_[LC29H_LINE_MAX] = "";
+    char state_vtg_[LC29H_LINE_MAX] = "";
     RtkState state_ = {};
-    void updateState(char **fields, int n);
+    void storeStateText(char *dst, const char *line, uint16_t len);
+    void updateState(struct RtkState &st, char **fields, int n);
+
+    // An epoch as the parse stores it: the sentences as received. takeEpoch() fills epoch_'s values from them
+    struct EpochText {
+        GnssEpoch epoch_;  // sentences_, seq_, close_reason_ (and the debug timing) are set by the parse
+        char gga_[LC29H_LINE_MAX];
+        char tar_[LC29H_LINE_MAX];
+        char epe_[LC29H_LINE_MAX];
+    };
 
     // Epoch state (written only by the parse, except the queue: lock_)
-    GnssEpoch open_epoch_ = {};  // epoch being assembled
+    EpochText open_epoch_ = {};  // epoch being assembled
     bool epoch_open_ = false;
     uint32_t epoch_opened_ms_ = 0;
     uint16_t epoch_timeout_ms_ = GNSS_EPOCH_TIMEOUT_MS;
     uint8_t epoch_sentences_ = GNSS_SENTENCE_DEFAULT;
-    GnssEpoch ready_[GNSS_EPOCH_QUEUE_MAX] = {};  // closed epochs not yet taken, oldest at ready_head_
+    EpochText ready_[GNSS_EPOCH_QUEUE_MAX] = {};  // closed epochs not yet taken, oldest at ready_head_
     uint8_t ready_head_ = 0;
     uint8_t ready_count_ = 0;
     uint8_t seq_ = 0;  // seq_ of the newest closed epoch
     uint8_t epochs_closed_ = 0;
     uint32_t now_ms_ = 0;  // time of the current parse
 
-    void dispatchEpochFields(char **fields, int n, uint32_t now_ms);
     void countSentence(const char *line, bool ok);
+    void convertEpoch(EpochText *t);
     void closeEpoch(uint8_t reason);
     void openEpoch(uint32_t now_ms);
     void prepareEpoch(uint8_t sentence, uint32_t now_ms);
-    void parseGGAFields(char **fields, int n);
-    void parsePQTMTARFields(char **fields, int n);
-    void parsePQTMEPEFields(char **fields, int n);
+    void parseGGAFields(GnssEpoch &e, char **fields, int n);
+    void parsePQTMTARFields(GnssEpoch &e, char **fields, int n);
+    void parsePQTMEPEFields(GnssEpoch &e, char **fields, int n);
     static int splitFields(char *line, char **fields, int max_fields);
     static bool parseUtcMs(const char *field, uint32_t *utc_ms);
 

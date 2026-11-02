@@ -140,7 +140,7 @@ uint8_t LC29HDriver::process(uint32_t now_ms) {
         char ch = (char) rx_ring_[rx_r_];
         rx_r_ = (rx_r_ + 1) % LC29H_RX_RING_SIZE;
         if (assembleLine(ch)) {
-            handleLine(line_, now_ms);
+            handleLine(line_, line_done_len_, now_ms);
         }
     }
 
@@ -158,22 +158,67 @@ uint8_t LC29HDriver::process(uint32_t now_ms) {
     return epochs_closed_;
 }
 
-void LC29HDriver::handleLine(char *line, uint32_t now_ms) {
+void LC29HDriver::handleLine(const char *line, uint16_t len, uint32_t now_ms) {
+    // Interrupt context, kept short: no conversion to numbers here (atof and the like are slow on the RP2040,
+    // which has no floating-point unit). The sentences are only checked, copied as text and grouped into epochs;
+    // takeEpoch() and getState() convert them in the caller's context
     bool ok = line[0] == '$' && validateChecksum(line);
     countSentence(line, ok);
     if (!ok) {
         return;
     }
-    char *fields[24];
-    int n = splitFields(line, fields, 24);  // in place, once for both uses
-    updateState(fields, n);
-    dispatchEpochFields(fields, n, now_ms);
+
+    if (strncmp(line, "$GNGGA", 6) == 0) {
+        storeStateText(state_gga_, line, len);
+        // GGA starts the epoch of a new fix: whatever is still open belongs to the previous one
+        if (epoch_open_) {
+            closeEpoch(GNSS_CLOSE_NEXT_GGA);
+        }
+        prepareEpoch(GNSS_SENTENCE_GGA, now_ms);
+        memcpy(open_epoch_.gga_, line, len + 1);
+    } else if (strncmp(line, "$PQTMTAR", 8) == 0) {
+        storeStateText(state_tar_, line, len);
+        // Sentences outside the set are not part of epochs: they never open, join or close one
+        if (!(epoch_sentences_ & GNSS_SENTENCE_PQTMTAR)) {
+            return;
+        }
+        // The LC29H EA stamps PQTMTAR ~49 ms after the GGA of the same fix, so its time is not
+        // compared with the epoch's: it belongs to the epoch that is open, like PQTMEPE
+        prepareEpoch(GNSS_SENTENCE_PQTMTAR, now_ms);
+#ifdef LC29H_DEBUG_TIMING
+        open_epoch_.epoch_.tar_after_ms_ = (uint16_t) (now_ms - epoch_opened_ms_);
+#endif
+        memcpy(open_epoch_.tar_, line, len + 1);
+    } else if (strncmp(line, "$PQTMEPE", 8) == 0) {
+        if (!(epoch_sentences_ & GNSS_SENTENCE_PQTMEPE)) {
+            return;
+        }
+        // PQTMEPE has no time field: it belongs to the epoch that is open
+        prepareEpoch(GNSS_SENTENCE_PQTMEPE, now_ms);
+#ifdef LC29H_DEBUG_TIMING
+        open_epoch_.epoch_.epe_after_ms_ = (uint16_t) (now_ms - epoch_opened_ms_);
+#endif
+        memcpy(open_epoch_.epe_, line, len + 1);
+    } else {
+        if (strncmp(line, "$GNVTG", 6) == 0) {
+            storeStateText(state_vtg_, line, len);
+        }
+        return;
+    }
+
+    if ((open_epoch_.epoch_.sentences_ & epoch_sentences_) == epoch_sentences_) {
+        closeEpoch(GNSS_CLOSE_COMPLETE);
+    }
 }
 
-void LC29HDriver::updateState(char **fields, int n) {
-    // Same values as the old getNMEA(), from the split fields (no memory allocation: this runs in an interrupt).
-    // Empty fields leave the value as it was
-    RtkState &st = state_work_;
+void LC29HDriver::storeStateText(char *dst, const char *line, uint16_t len) {
+    critical_section_enter_blocking(&lock_);
+    memcpy(dst, line, len + 1);
+    critical_section_exit(&lock_);
+}
+
+void LC29HDriver::updateState(RtkState &st, char **fields, int n) {
+    // Same values as the old getNMEA(). Empty fields leave the value as it was
     if (strcmp(fields[0], "$GNGGA") == 0) {
         // $GNGGA,1 UTC,2 Lat,3 N/S,4 Lon,5 E/W,6 Quality,7 NumSatUsed,8 HDOP,9 Alt,...
         if (n > 1 && fields[1][0] != '\0')
@@ -200,18 +245,25 @@ void LC29HDriver::updateState(char **fields, int n) {
         // $GNVTG,1 COG_T,2 T,3 COG_M,4 M,5 SOG_kn,6 N,7 SOG_kmh,8 K,...
         if (n > 7 && fields[7][0] != '\0')
             st.speed_kph_ = atof(fields[7]);
-    } else {
-        return;
     }
-    critical_section_enter_blocking(&lock_);
-    state_ = st;
-    critical_section_exit(&lock_);
 }
 
 void LC29HDriver::getState(RtkState *rtk_state) {
+    // Copy the newest sentences under the lock (bytes only), then convert them outside it
+    char text[3][LC29H_LINE_MAX];
     critical_section_enter_blocking(&lock_);
-    *rtk_state = state_;
+    strcpy(text[0], state_gga_);
+    strcpy(text[1], state_tar_);
+    strcpy(text[2], state_vtg_);
     critical_section_exit(&lock_);
+
+    char *fields[24];
+    for (int i = 0; i < 3; i++) {
+        if (text[i][0] != '\0') {
+            updateState(state_, fields, splitFields(text[i], fields, 24));
+        }
+    }
+    *rtk_state = state_;
 }
 
 void LC29HDriver::setEpochSentences(uint8_t sentences) {
@@ -231,24 +283,40 @@ void LC29HDriver::setEpochTimeoutMs(uint16_t ms) {
 }
 
 bool LC29HDriver::assembleLine(char ch) {
-    // Returns true when line_ holds a complete line (without the line ending)
+    // Returns true when line_ holds a complete line to handle (without the line ending). Sentences the driver
+    // does not use (most of what the module sends) are skipped after their 6-character header, so the parse
+    // spends almost nothing on them
     if (ch == '\n' || ch == '\r') {
-        if (line_len_ == 0) {
-            return false;
+        bool complete = line_len_ > 0 && !line_skip_;
+        if (line_len_ > 0 || line_skip_) {
+            stats_.lines++;
         }
-        line_[line_len_] = '\0';
+        if (complete) {
+            line_[line_len_] = '\0';
+            line_done_len_ = line_len_;
+        }
         line_len_ = 0;
-        stats_.lines++;
-        return true;
+        line_skip_ = false;
+        return complete;
     }
 
     if (ch == '$') {
         // Start of a new sentence: resync (recovers from lost bytes/overrun)
         line_len_ = 0;
+        line_skip_ = false;
+    }
+    if (line_skip_) {
+        return false;
     }
 
     if (line_len_ < sizeof(line_) - 1) {
         line_[line_len_++] = ch;
+        if (line_len_ == 6 && strncmp(line_, "$GNGGA", 6) != 0 && strncmp(line_, "$GNVTG", 6) != 0 &&
+            strncmp(line_, "$PQTMT", 6) != 0 && strncmp(line_, "$PQTME", 6) != 0) {
+            line_[0] == '$' ? stats_.ok_other++ : stats_.bad_other++;
+            line_skip_ = true;
+            line_len_ = 0;
+        }
     } else {
         line_len_ = 0;  // oversized garbage without newline: drop and resync
         stats_.long_lines++;
@@ -273,58 +341,39 @@ void LC29HDriver::dispatchSentence(const char *line, RtkState *rtk_state) {
 bool LC29HDriver::takeEpoch(struct GnssEpoch *epoch) {
     // The parse (timer interrupt, possibly on the other core) adds to the queue while this removes from it:
     // the copy and the head/count update must be one step, or an epoch can be overwritten mid-copy or the count
-    // lose an update. The critical section blocks interrupts on this core and the other core's access
+    // lose an update. The critical section blocks interrupts on this core and the other core's access. Only
+    // bytes are copied under it (a few us); the conversion to numbers is done after, outside it
+    EpochText t;
     critical_section_enter_blocking(&lock_);
     bool got = ready_count_ > 0;
     if (got) {
-        *epoch = ready_[ready_head_];
+        t = ready_[ready_head_];
         ready_head_ = (ready_head_ + 1) % GNSS_EPOCH_QUEUE_MAX;
         ready_count_--;
     }
     critical_section_exit(&lock_);
+    if (got) {
+        convertEpoch(&t);
+        *epoch = t.epoch_;
+    }
     return got;
 }
 
-void LC29HDriver::dispatchEpochFields(char **fields, int n, uint32_t now_ms) {
-    // Sentences outside the set are only counted: they never open, join or close an epoch
-    if ((strcmp(fields[0], "$PQTMTAR") == 0 && !(epoch_sentences_ & GNSS_SENTENCE_PQTMTAR)) ||
-        (strcmp(fields[0], "$PQTMEPE") == 0 && !(epoch_sentences_ & GNSS_SENTENCE_PQTMEPE))) {
-        return;
-    }
-
-    if (strcmp(fields[0], "$GNGGA") == 0) {
-        // GGA starts the epoch of a new fix: whatever is still open belongs to the previous one
-        if (epoch_open_) {
-            closeEpoch(GNSS_CLOSE_NEXT_GGA);
+void LC29HDriver::convertEpoch(EpochText *t) {
+    GnssEpoch &e = t->epoch_;
+    char *fields[24];
+    if (e.sentences_ & GNSS_SENTENCE_GGA) {
+        int n = splitFields(t->gga_, fields, 24);
+        if (n > 1 && parseUtcMs(fields[1], &e.utc_ms_)) {
+            e.flags_ |= GNSS_VALID_TIME;
         }
-        prepareEpoch(GNSS_SENTENCE_GGA, now_ms);
-        uint32_t utc_ms = 0;
-        if (n > 1 && parseUtcMs(fields[1], &utc_ms)) {
-            open_epoch_.utc_ms_ = utc_ms;
-            open_epoch_.flags_ |= GNSS_VALID_TIME;
-        }
-        parseGGAFields(fields, n);
-    } else if (strcmp(fields[0], "$PQTMTAR") == 0) {
-        // The LC29H EA stamps PQTMTAR ~49 ms after the GGA of the same fix, so its time is not
-        // compared with the epoch's: it belongs to the epoch that is open, like PQTMEPE
-        prepareEpoch(GNSS_SENTENCE_PQTMTAR, now_ms);
-#ifdef LC29H_DEBUG_TIMING
-        open_epoch_.tar_after_ms_ = (uint16_t) (now_ms - epoch_opened_ms_);
-#endif
-        parsePQTMTARFields(fields, n);
-    } else if (strcmp(fields[0], "$PQTMEPE") == 0) {
-        // PQTMEPE has no time field: it belongs to the epoch that is open
-        prepareEpoch(GNSS_SENTENCE_PQTMEPE, now_ms);
-#ifdef LC29H_DEBUG_TIMING
-        open_epoch_.epe_after_ms_ = (uint16_t) (now_ms - epoch_opened_ms_);
-#endif
-        parsePQTMEPEFields(fields, n);
-    } else {
-        return;
+        parseGGAFields(e, fields, n);
     }
-
-    if ((open_epoch_.sentences_ & epoch_sentences_) == epoch_sentences_) {
-        closeEpoch(GNSS_CLOSE_COMPLETE);
+    if (e.sentences_ & GNSS_SENTENCE_PQTMTAR) {
+        parsePQTMTARFields(e, fields, splitFields(t->tar_, fields, 24));
+    }
+    if (e.sentences_ & GNSS_SENTENCE_PQTMEPE) {
+        parsePQTMEPEFields(e, fields, splitFields(t->epe_, fields, 24));
     }
 }
 
@@ -342,21 +391,21 @@ void LC29HDriver::countSentence(const char *line, bool ok) {
 
 void LC29HDriver::prepareEpoch(uint8_t sentence, uint32_t now_ms) {
     // A second copy of a sentence means the open epoch is finished (e.g. its GGA was lost)
-    if (epoch_open_ && (open_epoch_.sentences_ & sentence) != 0) {
+    if (epoch_open_ && (open_epoch_.epoch_.sentences_ & sentence) != 0) {
         closeEpoch(GNSS_CLOSE_REPEAT);
     }
 
     if (!epoch_open_) {
         openEpoch(now_ms);
     }
-    open_epoch_.sentences_ |= sentence;
+    open_epoch_.epoch_.sentences_ |= sentence;
 }
 
 void LC29HDriver::openEpoch(uint32_t now_ms) {
-    open_epoch_ = {};
+    open_epoch_.epoch_ = {};
 #ifdef LC29H_DEBUG_TIMING
-    open_epoch_.opened_ms_ = now_ms;
-    open_epoch_.tar_after_ms_ = open_epoch_.epe_after_ms_ = 0xFFFF;
+    open_epoch_.epoch_.opened_ms_ = now_ms;
+    open_epoch_.epoch_.tar_after_ms_ = open_epoch_.epoch_.epe_after_ms_ = 0xFFFF;
 #endif
     epoch_open_ = true;
     epoch_opened_ms_ = now_ms;
@@ -370,11 +419,11 @@ void LC29HDriver::closeEpoch(uint8_t reason) {
         ready_head_ = (ready_head_ + 1) % GNSS_EPOCH_QUEUE_MAX;
         ready_count_--;
     }
-    open_epoch_.close_reason_ = reason;
+    open_epoch_.epoch_.close_reason_ = reason;
 #ifdef LC29H_DEBUG_TIMING
-    open_epoch_.closed_ms_ = now_ms_;
+    open_epoch_.epoch_.closed_ms_ = now_ms_;
 #endif
-    open_epoch_.seq_ = ++seq_;
+    open_epoch_.epoch_.seq_ = ++seq_;
     stats_.closed[reason]++;
     ready_[(ready_head_ + ready_count_) % GNSS_EPOCH_QUEUE_MAX] = open_epoch_;
     ready_count_++;
@@ -383,9 +432,8 @@ void LC29HDriver::closeEpoch(uint8_t reason) {
     epochs_closed_++;
 }
 
-void LC29HDriver::parseGGAFields(char **fields, int n) {
+void LC29HDriver::parseGGAFields(GnssEpoch &e, char **fields, int n) {
     // $GNGGA,1 UTC,2 Lat,3 N/S,4 Lon,5 E/W,6 Quality,7 NumSatUsed,...
-    GnssEpoch &e = open_epoch_;
     if (n > 6 && fields[6][0] != '\0') {
         e.fix_quality_ = (uint8_t) atoi(fields[6]);
     }
@@ -411,10 +459,9 @@ void LC29HDriver::parseGGAFields(char **fields, int n) {
     }
 }
 
-void LC29HDriver::parsePQTMTARFields(char **fields, int n) {
+void LC29HDriver::parsePQTMTARFields(GnssEpoch &e, char **fields, int n) {
     // $PQTMTAR,1 MsgVer,2 Time,3 Quality,4 Res,5 Length,6 Pitch,7 Res,8 Heading,9 Acc_Pitch,10 Res,
     // 11 Acc_Heading,12 UsedSV
-    GnssEpoch &e = open_epoch_;
     if (n > 3 && fields[3][0] != '\0') {
         e.heading_quality_ = (uint8_t) atoi(fields[3]);
     }
@@ -431,9 +478,8 @@ void LC29HDriver::parsePQTMTARFields(char **fields, int n) {
     }
 }
 
-void LC29HDriver::parsePQTMEPEFields(char **fields, int n) {
+void LC29HDriver::parsePQTMEPEFields(GnssEpoch &e, char **fields, int n) {
     // $PQTMEPE,1 MsgVer,2 EPE_North,3 EPE_East,4 EPE_Down,5 EPE_2D,6 EPE_3D
-    GnssEpoch &e = open_epoch_;
     if (n > 4 && fields[2][0] != '\0' && fields[3][0] != '\0' && fields[4][0] != '\0') {
         e.epe_north_ = atof(fields[2]);
         e.epe_east_ = atof(fields[3]);
