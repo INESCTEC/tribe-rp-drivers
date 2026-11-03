@@ -244,16 +244,16 @@ private:
     void notePending(uint16_t w);
 #endif
 
-    alignas(LC29H_RX_RING_SIZE) uint8_t rx_ring_[LC29H_RX_RING_SIZE];
+    alignas(LC29H_RX_RING_SIZE) uint8_t rx_ring_[LC29H_RX_RING_SIZE] = {};
     uint16_t rx_r_ = 0;  // written only by the parse
 
-    uint8_t tx_ring_[LC29H_TX_RING_SIZE];
+    uint8_t tx_ring_[LC29H_TX_RING_SIZE] = {};
     volatile uint32_t tx_w_ = 0;  // free-running; written only by writeCorrections()
     volatile uint32_t tx_r_ = 0;  // free-running; written by onIrq() (and writeCorrections() with the IRQ off)
 
     // Line assembler (survives partial sentences between parse calls). Sentences the driver does not use are
     // skipped after their header (line_skip_)
-    char line_[LC29H_LINE_MAX];
+    char line_[LC29H_LINE_MAX] = {};
     uint16_t line_len_ = 0;
     uint16_t line_done_len_ = 0;  // length of the complete line in line_
     bool line_skip_ = false;

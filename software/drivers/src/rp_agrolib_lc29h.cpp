@@ -315,7 +315,8 @@ void LC29HDriver::getState(RtkState *rtk_state) {
     char *fields[24];
     for (int i = 0; i < 3; i++) {
         if (text[i][0] != '\0') {
-            updateState(state_, fields, splitFields(text[i], fields, 24));
+            int n = splitFields(text[i], fields, 24);
+            updateState(state_, fields, n);
         }
     }
     *rtk_state = state_;
@@ -781,6 +782,9 @@ int LC29HDriver::formatEpochDebugLine(const GnssEpoch *e, char *buf, int size) c
     return n < size ? n : size - 1;
 }
 
+// uint32_t is unsigned long on the RP2040 (no-op there) but unsigned int on a PC: the cast keeps %lu right on both
+static inline unsigned long ul(uint32_t x) { return (unsigned long) x; }
+
 int LC29HDriver::formatStatsDebugLines(uint32_t now_ms, char *buf, int size) {
     // Snapshot and reset the maxima together (they are written in interrupts)
     uint32_t irq = save_and_disable_interrupts();
@@ -797,12 +801,12 @@ int LC29HDriver::formatStatsDebugLines(uint32_t now_ms, char *buf, int size) {
                      "DB,%lu,%lu,%lu,%lu,%lu\n"
                      "DC,%lu,%lu,%lu,%lu,%lu,%lu\n"
                      "DL,%lu,%lu,%lu,%lu,%lu,%lu\n",
-                     t, s.rx_bytes, s.uart_overrun, s.uart_framing_break, ring_max, irq_max,
-                     t, s.lines, s.ok_gga, s.ok_tar, s.ok_epe, s.ok_other, s.long_lines,
-                     t, s.bad_gga, s.bad_tar, s.bad_epe, s.bad_other,
-                     t, s.closed[GNSS_CLOSE_COMPLETE], s.closed[GNSS_CLOSE_NEXT_GGA], s.closed[GNSS_CLOSE_REPEAT],
-                     s.closed[GNSS_CLOSE_TIMEOUT], s.overwritten,
-                     t, s.rx_dropped, s.rtcm_bytes, s.rtcm_dropped, parse_max, parse_gap_max);
+                     t, ul(s.rx_bytes), ul(s.uart_overrun), ul(s.uart_framing_break), ul(ring_max), ul(irq_max),
+                     t, ul(s.lines), ul(s.ok_gga), ul(s.ok_tar), ul(s.ok_epe), ul(s.ok_other), ul(s.long_lines),
+                     t, ul(s.bad_gga), ul(s.bad_tar), ul(s.bad_epe), ul(s.bad_other),
+                     t, ul(s.closed[GNSS_CLOSE_COMPLETE]), ul(s.closed[GNSS_CLOSE_NEXT_GGA]),
+                     ul(s.closed[GNSS_CLOSE_REPEAT]), ul(s.closed[GNSS_CLOSE_TIMEOUT]), ul(s.overwritten),
+                     t, ul(s.rx_dropped), ul(s.rtcm_bytes), ul(s.rtcm_dropped), ul(parse_max), ul(parse_gap_max));
     return n < size ? n : size - 1;
 }
 #endif
