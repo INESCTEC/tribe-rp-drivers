@@ -42,6 +42,9 @@ def epoch_run(d):
         usb.append('%.6f\tDU,%d,%d,%d,0,120,15' % (t, 1000 * j, 20000 * j, 2 * j))
         usb.append('%.6f\tDC,%d,%d,0,%d,0,%d' % (t, 1000 * j, 50 * j, 2 * j, j))
         usb.append('%.6f\tDL,%d,0,%d,0,450,10200' % (t, 1000 * j, 900 * j))
+    for j in range(60):                                                 # S lines: one state mismatch at the end
+        usb.append('%.6f\tS,%d,%d,1f,4,41.1,-8.5,133.20,0.009,90.50,%d,%d,0,%d'
+                   % (t0 + j, 1000 * j, j % 256, 10 * j, j // 20, 1 if j == 59 else 0))
     open(os.path.join(d, 'usb.log'), 'w').write('\n'.join(usb) + '\n')
     yaml.safe_dump({'step': 'synthetic', 'firmware': 'rp_lc29h_debug'}, open(os.path.join(d, 'meta.yaml'), 'w'))
 
@@ -81,6 +84,8 @@ with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
     check('rtcm bytes', r['rp2040_counters_over_run']['rtcm_bytes'], 10800)
     check('EPE after GGA p50', r['arrival_after_gga_ms']['PQTMEPE']['p50'], 5.0)
     check('parse max', r['rp2040_maxima_over_run']['parse_max_us'], 450)
+    check('newest epoch checks', r['newest_epoch_checks'],
+          {'checks': 590, 'skipped_newer_epoch': 2, 'epoch_mismatch': 0, 'state_mismatch': 1})
 
     sniffer_run(d2)
     s = A.analyze(d2)

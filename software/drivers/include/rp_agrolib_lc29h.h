@@ -59,9 +59,9 @@ static_assert((LC29H_RX_RING_SIZE & (LC29H_RX_RING_SIZE - 1)) == 0 && LC29H_RX_R
 #define GNSS_SENTENCE_PQTMEPE (1 << 2)
 #define GNSS_SENTENCE_VTG (1 << 3)
 #define GNSS_SENTENCE_ALL (GNSS_SENTENCE_GGA | GNSS_SENTENCE_PQTMTAR | GNSS_SENTENCE_PQTMEPE | GNSS_SENTENCE_VTG)
-// GGA + VTG + PQTMTAR: what the module sends after its factory settings and the PQTMTAR rate (docs/lc29h.md).
-// VTG comes right after GGA and PQTMTAR ~50 ms later, so VTG does not make an epoch wait longer
-#define GNSS_SENTENCE_DEFAULT (GNSS_SENTENCE_GGA | GNSS_SENTENCE_PQTMTAR | GNSS_SENTENCE_VTG)
+// Position + heading. VTG (speed) and PQTMEPE are opt-in: VTG comes right after GGA, so adding it does not make
+// an epoch wait longer
+#define GNSS_SENTENCE_DEFAULT (GNSS_SENTENCE_GGA | GNSS_SENTENCE_PQTMTAR)
 
 // Default for setEpochTimeoutMs(). Measured on the LC29H EA at 10 Hz: PQTMTAR arrives ~50 ms after GGA,
 // so this must be above that and below the 100 ms fix period

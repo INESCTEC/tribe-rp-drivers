@@ -81,7 +81,7 @@ static void forward_corrections() {
 int main() {
     stdio_init_all();
 
-    gnss.setEpochSentences(GNSS_SENTENCE_DEFAULT);  // GGA + VTG + PQTMTAR; GNSS_SENTENCE_ALL if the module sends $PQTMEPE
+    gnss.setEpochSentences(GNSS_SENTENCE_DEFAULT);  // GGA + PQTMTAR; add GNSS_SENTENCE_VTG for the speed
     // UART, RX DMA channel, rings, UART interrupt, and a timer that parses what arrives every 10 ms
     if (!gnss.begin(GNSS_RX_PIN, GNSS_TX_PIN, GNSS_BAUDRATE)) {
         printf("UART0 interrupt already in use, or no DMA channel or timer free\n");
@@ -204,16 +204,17 @@ Closed epochs wait in a queue of 8 (oldest first). If the queue is full, the old
 
 | Set | Use |
 |---|---|
-| `GNSS_SENTENCE_DEFAULT` (GGA + VTG + PQTMTAR), **default** | position, speed, heading |
-| `GNSS_SENTENCE_ALL` (+ PQTMEPE) | also the position error. The module must be configured to send `$PQTMEPE` (section 7) |
+| `GNSS_SENTENCE_DEFAULT` (GGA + PQTMTAR), **default** | position + heading |
+| `GNSS_SENTENCE_DEFAULT \| GNSS_SENTENCE_VTG` | also the speed (`getState()` needs it for `speed_kph_`) |
+| `GNSS_SENTENCE_ALL` (+ VTG, PQTMEPE) | also the position error. The module must be configured to send `$PQTMEPE` (section 7) |
 | `GNSS_SENTENCE_GGA` | position only, no wait for the heading |
 
 The set must match what the module sends:
 
 | Set (driver) | Module sends | Epoch closes | Result |
 |---|---|---|---|
-| default | GGA + VTG + TAR | at TAR, ~50 ms after GGA | position, speed, heading |
-| default | GGA + VTG + TAR + EPE | at TAR | EPE ignored (counted in `stats()`, never in the epoch) |
+| default | GGA + VTG + TAR | at TAR, ~50 ms after GGA | position + heading (VTG ignored) |
+| default | GGA + VTG + TAR + EPE | at TAR | VTG, EPE ignored (counted in `stats()`, never in the epoch) |
 | ALL | GGA + VTG + TAR + EPE | at the last of them (TAR) | position, speed, heading, EPE |
 | ALL | GGA + VTG + TAR (no EPE) | **timeout, 90 ms after GGA** | works, ~40 ms later; every close is `TIMEOUT`: the mismatch shows in the counters |
 | GGA only | anything | at GGA | position only |
@@ -280,7 +281,7 @@ The sentence set (section 3) must match what the module sends. Two configuration
 
 | Configuration | For | Commands |
 |---|---|---|
-| **default** | `GNSS_SENTENCE_DEFAULT` | `$PQTMRESTOREPAR*13` (factory settings, which send GGA and VTG), `$PQTMCFGMSGRATE,W,PQTMTAR,1,1*09` (heading on every fix), `$PQTMSAVEPAR*5A` (save) |
+| **default** | `GNSS_SENTENCE_DEFAULT` (+ `_VTG`) | `$PQTMRESTOREPAR*13` (factory settings, which send GGA and VTG), `$PQTMCFGMSGRATE,W,PQTMTAR,1,1*09` (heading on every fix), `$PQTMSAVEPAR*5A` (save) |
 | **with EPE** | `GNSS_SENTENCE_ALL` | the above, plus `$PQTMCFGMSGRATE,W,PQTMEPE,1,2*1D` (`$PQTMEPE` version 2 on every fix) before `$PQTMSAVEPAR*5A` |
 
 Useful extras:
@@ -316,7 +317,7 @@ the firmware alike (it changes the struct layout: never define it only in the fi
 
 | Example | Mode | Shows |
 |---|---|---|
-| `rp_lc29h_debug` | epoch | the driver: one `E` line per epoch, `D*` counters every 5 s |
+| `rp_lc29h_debug` | epoch | the driver: one `E` line per epoch, `D*` counters every 5 s, `S` check every 1 s |
 | `rp_lc29h_sniffer` | sniffer (`LC29H_DEBUG_SNIFFER`) | the module: every line it sends, with the time of its end; no driver |
 
 Comparing the two separates "the module does not send it" from "the driver loses it". Both take corrections from
@@ -350,6 +351,11 @@ Every 5 s (counters cumulative, maxima since the previous report):
 | `DB` | t, checksum failed: gga, tar, epe, other |
 | `DC` | t, closed: complete, next_gga, repeat, timeout; overwritten |
 | `DL` | t, rx_dropped, rtcm_bytes, rtcm_dropped, parse_max_us, parse_gap_max_us |
+
+`S,t,seq,flags,fix,lat,lon,alt,speed_kph,heading,checks,skipped,epoch_mismatch,state_mismatch`, every 1 s: every
+100 ms the example compares `getMostRecentEpoch()` (converted and cached copy) with the last epoch popped, and
+`getState()` with that epoch's valid fields (the others kept). The fields after `seq`/`flags` are `getState()`'s;
+the counters are cumulative and both mismatches must stay 0 (`report.yaml`: `newest_epoch_checks`).
 
 Sniffer mode: `N,<t_us>,<NMEA line>`, and every 5 s
 `D,t_us,bytes,lines,uart_overrun,uart_framing_break,ring_overflow,ring_max,too_long,rtcm_frames,rtcm_bytes`.
@@ -390,7 +396,7 @@ configured "with EPE" (section 7) unless noted.
 | Step | Firmware | Corrections | Checks | Pass when |
 |---|---|---|---|---|
 | A | `rp_lc29h_sniffer` | on | what the module sends | `sentences_per_s`: GNGGA, GNVTG, PQTMTAR, PQTMEPE ≈ 10; `missing_pct_of_bursts` ≈ 0; overrun 0 |
-| B | `rp_lc29h_debug`, `--sentences 11` | on | default set | `close_reasons` all `complete`; no epoch with flag 0x08 (EPE); PQTMTAR `arrival_after_gga_ms` ≈ 50 |
+| B | `rp_lc29h_debug`, `--sentences 3` | on | default set | `close_reasons` all `complete`; no epoch with flag 0x08 (EPE); PQTMTAR `arrival_after_gga_ms` ≈ 50 |
 | C | `rp_lc29h_debug`, `--sentences 15` | on | full set, corrections | all `complete`; criteria below; RTK float/fixed reached |
 | D | `rp_lc29h_debug`, `--sentences 15`, module in the **default** configuration | on | mismatch shows | every close `timeout`; `ok.epe` = 0 |
 | E | `rp_lc29h_debug` | off (`--no-ntrip`) | without corrections | criteria below |
@@ -403,6 +409,7 @@ Criteria for an epoch-mode run (`report.yaml`):
 | `rp2040_counters_over_run.uart_overrun` | 0 | bytes lost in the UART although the DMA empties it: report it (DMA channel stopped?) |
 | `rp2040_counters_over_run.rx_ring_dropped` | 0 | parse calls too rare |
 | `epochs_not_reported`, `overwritten_before_taken` | 0 | the firmware pops epochs too slowly |
+| `newest_epoch_checks`: `epoch_mismatch`, `state_mismatch` | 0 (`checks` > 0) | `getMostRecentEpoch()` / `getState()` wrong: report it |
 | `checksum_failed` | 0 | noise, baud rate, wiring |
 | `close_reasons` | `complete` only (a few `next_gga` / `repeat` at start-up) | `timeout` everywhere: sentence set ≠ module configuration |
 | `rtcm_dropped` | 0 | corrections faster than the UART |
@@ -427,7 +434,7 @@ Reading other numbers:
 | `bool popOldestEpoch(GnssEpoch *)` | removes and returns the oldest closed epoch (call in a loop) |
 | `bool getMostRecentEpoch(GnssEpoch *)` | newest closed epoch, queue unchanged |
 | `void getState(RtkState *)` | newest closed epoch as `RtkState` |
-| `void setEpochSentences(mask)`, `epochSentences()` | sentence set (default GGA + VTG + PQTMTAR) |
+| `void setEpochSentences(mask)`, `epochSentences()` | sentence set (default GGA + PQTMTAR) |
 | `void setEpochTimeoutMs(ms)` | epoch timeout (default 90 ms) |
 | `uint8_t process(now_ms)` | manual mode only: parse, close epochs |
 | `void writeCorrections(data, size)` | queue corrections (non-blocking after `begin()`) |

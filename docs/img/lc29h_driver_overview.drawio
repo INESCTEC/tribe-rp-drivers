@@ -31,7 +31,7 @@
         <mxCell id="c10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#fff4e5;strokeColor=#d98200;" value="&lt;b&gt;Parse timer&lt;/b&gt;&lt;br&gt;every 10 ms&lt;br&gt;&lt;br&gt;bytes → lines&lt;br&gt;checksum, keeps text&lt;br&gt;groups one fix" vertex="1">
           <mxGeometry height="125" width="175" x="630" y="160" as="geometry" />
         </mxCell>
-        <mxCell id="c11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;Epoch queue&lt;/b&gt; (8)&lt;br&gt;GGA + VTG + PQTMTAR&lt;br&gt;[+ PQTMEPE if configured]" vertex="1">
+        <mxCell id="c11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;Epoch queue&lt;/b&gt; (8)&lt;br&gt;GGA + PQTMTAR&lt;br&gt;[+ VTG, PQTMEPE if set]" vertex="1">
           <mxGeometry height="85" width="220" x="900" y="165" as="geometry" />
         </mxCell>
         <mxCell id="c12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;Newest epoch&lt;/b&gt;&lt;br&gt;slot index + converted copy" vertex="1">

@@ -3,7 +3,8 @@
  *
  * Shows on USB what the module sends and what the driver makes of it, without CAN or a robot:
  *   epoch mode (default): the driver (begin(): it parses every 10 ms itself) and its debug lines:
- *       "E,..." one per closed epoch, "DU/DS/DB/DC/DL,..." every 5 s (LC29HDriver::format*DebugLine*())
+ *       "E,..." one per closed epoch, "DU/DS/DB/DC/DL,..." every 5 s (LC29HDriver::format*DebugLine*()), and
+ *       "S,..." every 1 s: getMostRecentEpoch() and getState() checked against the epochs popped (check_newest())
  *   sniffer mode (LC29H_DEBUG_SNIFFER): no driver; every raw module line with the RP2040 time of its '\n':
  *       "N,<t_us>,<line>", and every 5 s "D,<t_us>,<bytes>,<lines>,<uart_overrun>,<uart_framing_break>,
  *       <ring_overflow>,<ring_max>,<line_too_long>,<rtcm_frames>,<rtcm_bytes>"
@@ -39,6 +40,8 @@
 #endif
 
 #define REPORT_PERIOD_MS 5000
+#define CHECK_PERIOD_MS 100   // getMostRecentEpoch() / getState() checked this often
+#define S_PERIOD_MS 1000      // S line
 #define RTCM_MAX 4096  // largest correction frame payload accepted
 
 // ---------------- board start-up (replaceable) ----------------
@@ -166,13 +169,81 @@ static void set_epoch_sentences(uint8_t sentences) {
     printf("I,rp_lc29h_debug,sentences %x\n", gnss.epochSentences());
 }
 
+// ---- getMostRecentEpoch() / getState() on the board ----
+// The newest epoch must be the last one popped, field by field, whether converted now or copied from the driver's
+// converted copy (second call). getState() must hold that epoch's valid fields and keep the others as they were.
+// Skipped (not counted as checks) when a newer epoch closes during the check.
+static GnssEpoch last_popped_;
+static bool have_popped_ = false;
+static RtkState prev_state_ = {};
+static uint32_t checks_ = 0, skipped_ = 0, epoch_mismatch_ = 0, state_mismatch_ = 0;
+
+static bool same_epoch(const GnssEpoch &a, const GnssEpoch &b) {
+    return a.utc_ms_ == b.utc_ms_ && a.latitude_ == b.latitude_ && a.longitude_ == b.longitude_ &&
+           a.altitude_ == b.altitude_ && a.fix_quality_ == b.fix_quality_ && a.num_satellites_ == b.num_satellites_ &&
+           a.heading_ == b.heading_ && a.heading_quality_ == b.heading_quality_ && a.heading_acc_ == b.heading_acc_ &&
+           a.baseline_m_ == b.baseline_m_ && a.epe_north_ == b.epe_north_ && a.epe_east_ == b.epe_east_ &&
+           a.epe_down_ == b.epe_down_ && a.speed_kph_ == b.speed_kph_ && a.flags_ == b.flags_ &&
+           a.sentences_ == b.sentences_ && a.seq_ == b.seq_ && a.close_reason_ == b.close_reason_;
+}
+
+static bool state_as_expected(const RtkState &st, const RtkState &prev, const GnssEpoch &e) {
+    RtkState x = prev;
+    if (e.flags_ & GNSS_VALID_TIME) {
+        uint32_t s = e.utc_ms_ / 1000;
+        x.utc_ = (s / 3600) * 10000.0 + (s / 60 % 60) * 100.0 + s % 60 + (e.utc_ms_ % 1000) / 1000.0;
+    }
+    if (e.flags_ & GNSS_VALID_POSITION) {
+        x.latitude_ = e.latitude_;
+        x.longitude_ = e.longitude_;
+    }
+    if (e.flags_ & GNSS_VALID_ALTITUDE)
+        x.altitude_ = e.altitude_;
+    if (e.sentences_ & GNSS_SENTENCE_GGA) {
+        x.fix_status_ = e.fix_quality_;
+        x.num_satellites_ = e.num_satellites_;
+    }
+    if (e.flags_ & GNSS_VALID_HEADING)
+        x.heading_ = e.heading_;
+    if (e.flags_ & GNSS_VALID_SPEED)
+        x.speed_kph_ = e.speed_kph_;
+    double dutc = st.utc_ - x.utc_;
+    return dutc < 1e-6 && dutc > -1e-6 && st.latitude_ == x.latitude_ && st.longitude_ == x.longitude_ &&
+           st.altitude_ == x.altitude_ && st.heading_ == x.heading_ && st.fix_status_ == x.fix_status_ &&
+           st.num_satellites_ == x.num_satellites_ && st.speed_kph_ == x.speed_kph_;
+}
+
+static void check_newest() {
+    GnssEpoch a, b, c;
+    RtkState st;
+    if (!have_popped_ || !gnss.getMostRecentEpoch(&a)) {
+        return;
+    }
+    gnss.getMostRecentEpoch(&b);  // same epoch: the driver's converted copy
+    gnss.getState(&st);
+    gnss.getMostRecentEpoch(&c);  // still the same epoch after getState()?
+    if (a.seq_ != last_popped_.seq_ || b.seq_ != a.seq_ || c.seq_ != a.seq_) {
+        skipped_++;  // a newer epoch closed meanwhile (the main loop pops it next)
+        prev_state_ = st;
+        return;
+    }
+    checks_++;
+    if (!same_epoch(a, last_popped_) || !same_epoch(b, last_popped_))
+        epoch_mismatch_++;
+    if (!state_as_expected(st, prev_state_, a))
+        state_mismatch_++;
+    prev_state_ = st;
+}
+
 static void mode_poll() {
     static char buf[512];
-    static uint32_t last_report = 0;
+    static uint32_t last_report = 0, last_check = 0, last_s = 0;
 
     // Every closed epoch waiting in the driver's queue
     GnssEpoch e;
     while (gnss.popOldestEpoch(&e)) {
+        last_popped_ = e;
+        have_popped_ = true;
         uint32_t take_ms = to_ms_since_boot(get_absolute_time());
         gnss.formatEpochDebugLine(&e, buf, sizeof(buf));
         // No CAN here: "done" = printed, right after the take
@@ -180,6 +251,19 @@ static void mode_poll() {
     }
 
     uint32_t now = to_ms_since_boot(get_absolute_time());
+    if (now - last_check >= CHECK_PERIOD_MS) {
+        last_check = now;
+        check_newest();
+    }
+    if (now - last_s >= S_PERIOD_MS) {
+        // S,t,seq,flags,fix,lat,lon,alt,speed_kph,heading (getState()),checks,skipped,epoch_mismatch,state_mismatch
+        last_s = now;
+        printf("S,%lu,%u,%x,%u,%.8f,%.8f,%.2f,%.3f,%.2f,%lu,%lu,%lu,%lu\n", (unsigned long) (now % 10000000u),
+               last_popped_.seq_, last_popped_.flags_, prev_state_.fix_status_, prev_state_.latitude_,
+               prev_state_.longitude_, prev_state_.altitude_, prev_state_.speed_kph_, prev_state_.heading_,
+               (unsigned long) checks_, (unsigned long) skipped_, (unsigned long) epoch_mismatch_,
+               (unsigned long) state_mismatch_);
+    }
     if (now - last_report >= REPORT_PERIOD_MS) {
         last_report = now;
         gnss.formatStatsDebugLines(now, buf, sizeof(buf));

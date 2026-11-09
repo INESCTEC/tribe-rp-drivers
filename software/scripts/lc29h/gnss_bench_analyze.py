@@ -6,6 +6,7 @@
 Per run, from what its usb.log contains:
   epoch lines (E, DU/DS/DB/DC/DL from LC29HDriver's debug formats): every epoch the driver closed, its
     sentences, close reason and timing; fixes expected from the UTC times; the driver counters.
+    S lines (rp_lc29h_debug): getMostRecentEpoch() / getState() checked on the board against the epochs popped.
     Writes epochs.csv (one row per epoch) and report.yaml.
   sniffer lines (N/D, rp_lc29h_debug in sniffer mode): what the module sends per fix: sentences, checksum
     errors, bytes, arrival offsets. Writes fixes.csv and report.yaml.
@@ -122,6 +123,11 @@ def epoch_run(run, rows, meta):
             'parse_max_us': int(dl.parse_max_us.max()) if len(dl) else None,
             'parse_gap_max_us': int(dl.parse_gap_max_us.max()) if len(dl) else None},
     }
+    s = [text.split(',') for _, text in rows if text.startswith('S,')]
+    if s:
+        last = s[-1]
+        rep['newest_epoch_checks'] = {'checks': int(last[10]), 'skipped_newer_epoch': int(last[11]),
+                                      'epoch_mismatch': int(last[12]), 'state_mismatch': int(last[13])}
     return e, rep
 
 
