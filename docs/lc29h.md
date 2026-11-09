@@ -7,7 +7,7 @@ to configure the module and check that everything works.
 2. [Example: epochs and RTK corrections](#2-example-epochs-and-rtk-corrections)
 3. [Epochs](#3-epochs)
 4. [RTK corrections](#4-rtk-corrections)
-5. [Simple use without epochs](#5-simple-use-without-epochs)
+5. [Simple use: getState()](#5-simple-use-getstate)
 6. [Counters](#6-counters)
 7. [Module configuration](#7-module-configuration)
 8. [Debug tools](#8-debug-tools)
@@ -23,8 +23,8 @@ corrections (RTCM 3) on the same UART. The driver:
 
 - **owns the UART** (`begin()`): it sets it up with the FIFOs on, receives with **one DMA channel** into its
   own ring (no interrupt per byte, so no byte waits for the CPU) and owns the UART interrupt (corrections);
-- **parses the sentences** as they arrive and groups those of the same fix into an **epoch** (position, heading,
-  position error), kept in a queue until the firmware takes it;
+- **parses the sentences** as they arrive and groups those of the same fix into an **epoch** (position, speed,
+  heading, position error), kept in a queue until the firmware pops it;
 - **sends corrections** without blocking: `writeCorrections()` queues them and the UART interrupt sends them;
 - **counts** everything that can go wrong (bytes lost, checksum errors, epochs incomplete or dropped).
 
@@ -81,7 +81,7 @@ static void forward_corrections() {
 int main() {
     stdio_init_all();
 
-    gnss.setEpochSentences(GNSS_SENTENCE_DEFAULT);  // GGA + PQTMTAR; GNSS_SENTENCE_ALL if the module sends $PQTMEPE
+    gnss.setEpochSentences(GNSS_SENTENCE_DEFAULT);  // GGA + VTG + PQTMTAR; GNSS_SENTENCE_ALL if the module sends $PQTMEPE
     // UART, RX DMA channel, rings, UART interrupt, and a timer that parses what arrives every 10 ms
     if (!gnss.begin(GNSS_RX_PIN, GNSS_TX_PIN, GNSS_BAUDRATE)) {
         printf("UART0 interrupt already in use, or no DMA channel or timer free\n");
@@ -90,7 +90,7 @@ int main() {
     while (true) {
         // Every epoch waiting in the queue: usually 0 or 1, several after a burst or a busy loop
         GnssEpoch e;
-        while (gnss.takeEpoch(&e)) {
+        while (gnss.popOldestEpoch(&e)) {
             if (e.flags_ & GNSS_VALID_POSITION) {
                 printf("fix %u utc %lu ms: %.8f %.8f quality %u\n", e.seq_, (unsigned long) e.utc_ms_, e.latitude_,
                        e.longitude_, e.fix_quality_);
@@ -112,8 +112,8 @@ Link `rp_agrolib_lc29h` (it brings `rp_agrolib_uart` and `pico_stdlib`).
 | DMA channel (driver, hardware) | moves every received byte into the RX ring as it arrives: no CPU, no interrupt |
 | UART interrupt (driver) | refills the UART with queued corrections |
 | Timer interrupt (driver), every `parse_period_ms` | assembles the new sentences, checks their checksum and stores the ones it uses **as text** (no conversion to numbers: kept short); closes complete epochs into the queue |
-| `takeEpoch()` / `getState()` (firmware) | copy the stored text, then convert it to numbers (`atof`, degrees, flags) in the caller's context |
-| Firmware (main loop, or anywhere) | `takeEpoch()`, `getState()`, `writeCorrections()`, settings, `stats()` |
+| `popOldestEpoch()` / `getMostRecentEpoch()` / `getState()` (firmware) | copy the stored text, then convert it to numbers (`atof`, degrees, flags) in the caller's context |
+| Firmware (main loop, or anywhere) | the three above, `writeCorrections()`, settings, `stats()` |
 
 `begin()`'s last argument is the parse period, `LC29H_PARSE_PERIOD_MS` (10 ms) by default. It must stay much
 shorter than the epoch timeout (90 ms), which is only checked when the parse runs, and than what the RX ring holds
@@ -123,16 +123,16 @@ shorter than the epoch timeout (90 ms), which is only checked when the parse run
 The parse runs in an interrupt, so it is kept as short as possible: sentences the driver doesn't use (RMC, GLL,
 GSA, GSV…, most of what the module sends) are skipped after their 6-character header, and the ones it uses (GGA,
 PQTMTAR, PQTMEPE, VTG) are only checked and copied. Converting text to numbers is slow on the RP2040, which has no
-floating-point unit, so it happens in `takeEpoch()` and `getState()` instead.
+floating-point unit, so it happens in the methods that read the epochs instead.
 
-### Why the driver disables interrupts inside `takeEpoch()`
+### Why the driver disables interrupts inside `popOldestEpoch()`
 The epoch queue is used from two places at once:
 - **the parse, in the timer interrupt,** adds epochs: it writes an epoch into the queue's array and increments
   its count (or, when the queue is full, drops the oldest: moves the head and decrements the count);
-- **`takeEpoch()`, in the firmware,** removes the oldest: it copies it out (the stored sentences, ~500 bytes,
+- **`popOldestEpoch()`, in the firmware,** removes the oldest: it copies it out (the stored sentences, ~600 bytes,
   copied in many steps), then moves the head and decrements the count.
 
-An interrupt can stop the firmware between any two instructions. If the parse ran while `takeEpoch()` is half way
+An interrupt can stop the firmware between any two instructions. If the parse ran while `popOldestEpoch()` is half way
 through:
 - with the queue full, the epoch being copied can be overwritten mid-copy (the new epoch goes into the slot of
   the oldest), and the firmware gets half of one fix and half of another;
@@ -140,12 +140,12 @@ through:
   If the parse runs between the firmware's read and its write, the firmware writes back a stale value: the
   parse's change is lost and the count no longer matches the queue (an epoch vanishes or an old one comes back).
 
-So `takeEpoch()` copies the epoch and updates the count inside a **critical section**
+So `popOldestEpoch()` copies the epoch and updates the count inside a **critical section**
 (`critical_section_enter_blocking()` … `critical_section_exit()`, from `pico/critical_section.h`). It disables
 interrupts on the calling core and takes a hardware spin lock, so the parse can't run in between, on this core or
 the other one. It lasts a few microseconds (only bytes are copied; the conversion to numbers comes after, outside
-it). An interrupt that becomes due meanwhile is not lost: it runs right after. The parse holds the same lock only while it writes into the queue, and `getState()` and the setters use it
-too. The firmware never needs to disable interrupts itself.
+it). An interrupt that becomes due meanwhile is not lost: it runs right after. The parse holds the same lock only while it writes into the queue, and `getMostRecentEpoch()`, `getState()` and
+the setters use it too. The firmware never needs to disable interrupts itself.
 
 ### Rules
 - **Call `begin()` once**, before the other calls except the settings. It returns `false` if the UART's interrupt
@@ -153,8 +153,8 @@ too. The firmware never needs to disable interrupts itself.
   DMA channel or no timer is free. One driver per UART.
 - **The driver uses one DMA channel** (of the RP2040's 12), claimed in `begin()` with
   `dma_claim_unused_channel()`. Other code must claim its channels the same way, not use fixed channel numbers.
-- **Take epochs often enough:** the queue holds 8 (0.8 s at 10 Hz); beyond that the oldest are dropped
-  (`stats().overwritten`).
+- **With `popOldestEpoch()`, pop often enough:** the queue holds 8 (0.8 s at 10 Hz); beyond that the oldest are
+  dropped (`stats().overwritten`). Firmware that only reads the newest fix ignores this counter.
 - **Nothing else may write to this UART's TX**, or its bytes get mixed into the corrections.
 - **Manual mode** (`begin(rx, tx, baud, 0)`): no timer; the firmware calls `process(now_ms)` itself, every ~10 ms
   (e.g. from its main loop or its own timer). For firmware that must control when the parse runs.
@@ -167,13 +167,14 @@ An epoch is one fix: the sentences the module prints for it, parsed into one `Gn
 
 | Sentence | Gives | `GnssEpoch` fields |
 |---|---|---|
-| `$GNGGA` | time, position, fix quality, satellites | `utc_ms_`, `latitude_`, `longitude_`, `fix_quality_`, `num_satellites_` |
+| `$GNGGA` | time, position, altitude, fix quality, satellites | `utc_ms_`, `latitude_`, `longitude_`, `altitude_`, `fix_quality_`, `num_satellites_` |
+| `$GNVTG` | speed over ground | `speed_kph_` |
 | `$PQTMTAR` | heading from the two antennas | `heading_`, `heading_quality_`, `heading_acc_`, `baseline_m_` |
 | `$PQTMEPE` | estimated position error | `epe_north_`, `epe_east_`, `epe_down_` |
 
-- **Only use a field if its flag is set** in `flags_` (`GNSS_VALID_POSITION`, `_HEADING`, `_HEADING_ACC`, `_EPE`,
-  `_TIME`). For example, position is valid only with a fix (quality ≥ 1); heading only with heading quality ≥ 1.
-- `sentences_` says which sentences arrived (`GNSS_SENTENCE_GGA`, `_PQTMTAR`, `_PQTMEPE`).
+- **Only use a field if its flag is set** in `flags_` (`GNSS_VALID_POSITION`, `_ALTITUDE`, `_SPEED`, `_HEADING`,
+  `_HEADING_ACC`, `_EPE`, `_TIME`). For example, position is valid only with a fix (quality ≥ 1); heading only with heading quality ≥ 1.
+- `sentences_` says which sentences arrived (`GNSS_SENTENCE_GGA`, `_VTG`, `_PQTMTAR`, `_PQTMEPE`).
 - `seq_` numbers the closed epochs (+1 each, wraps at 255): a gap means an epoch was dropped.
 - Fix quality (`fix_quality_`, `heading_quality_`): 0 invalid, 1 GPS, 2 DGPS, 4 RTK fixed, 5 RTK float.
 
@@ -187,15 +188,22 @@ A GGA opens the epoch; the other sentences join the open one. It closes, with `c
 | `GNSS_CLOSE_REPEAT` | a second copy of a sentence arrived (e.g. this fix's GGA was lost) |
 | `GNSS_CLOSE_TIMEOUT` | the timeout passed since it opened (default 90 ms) |
 
-Closed epochs wait in a queue of 8 for `takeEpoch()` (oldest first). If the queue is full, the oldest is dropped
-and counted (`stats().overwritten`).
+Closed epochs wait in a queue of 8 (oldest first). If the queue is full, the oldest is dropped and counted
+(`stats().overwritten`).
+
+### Reading epochs
+| Method | Gives | Queue |
+|---|---|---|
+| `popOldestEpoch()` | every fix in order: call it in a loop until it returns `false` | removes the epoch |
+| `getMostRecentEpoch()` | the newest fix, whenever needed (a new one has a new `seq_`) | unchanged |
+| `getState()` | the newest fix as `RtkState` (section 5) | unchanged |
 
 ### The sentence set
 `setEpochSentences(mask)` says which sentences make up an epoch. GGA is always included.
 
 | Set | Use |
 |---|---|
-| `GNSS_SENTENCE_DEFAULT` (GGA + PQTMTAR), **default** | position + heading; the sentences used before PQTMEPE |
+| `GNSS_SENTENCE_DEFAULT` (GGA + VTG + PQTMTAR), **default** | position, speed, heading |
 | `GNSS_SENTENCE_ALL` (+ PQTMEPE) | also the position error. The module must be configured to send `$PQTMEPE` (section 7) |
 | `GNSS_SENTENCE_GGA` | position only, no wait for the heading |
 
@@ -203,10 +211,10 @@ The set must match what the module sends:
 
 | Set (driver) | Module sends | Epoch closes | Result |
 |---|---|---|---|
-| default | GGA + TAR | at TAR, ~50 ms after GGA | position + heading |
-| default | GGA + TAR + EPE | at TAR | EPE ignored (counted in `stats()`, never in the epoch) |
-| ALL | GGA + TAR + EPE | at the last of the three | position + heading + EPE |
-| ALL | GGA + TAR (no EPE) | **timeout, 90 ms after GGA** | works, ~40 ms later; every close is `TIMEOUT`: the mismatch shows in the counters |
+| default | GGA + VTG + TAR | at TAR, ~50 ms after GGA | position, speed, heading |
+| default | GGA + VTG + TAR + EPE | at TAR | EPE ignored (counted in `stats()`, never in the epoch) |
+| ALL | GGA + VTG + TAR + EPE | at the last of them (TAR) | position, speed, heading, EPE |
+| ALL | GGA + VTG + TAR (no EPE) | **timeout, 90 ms after GGA** | works, ~40 ms later; every close is `TIMEOUT`: the mismatch shows in the counters |
 | GGA only | anything | at GGA | position only |
 
 ### The timeout
@@ -231,17 +239,15 @@ Without `begin()`, `writeCorrections()` behaves as before: it writes the frame a
 
 ---
 
-## 5. Simple use without epochs
+## 5. Simple use: getState()
 
 ```cpp
 RtkState rtk;
 gnss.getState(&rtk);   // after begin(), whenever needed
 ```
-Copies the newest GGA, PQTMTAR and VTG (speed) values, kept up to date by the same parse as the epochs (it keeps
-the newest sentence of each type as text; `getState()` converts them). Each field holds the newest sentence **of its
-type**: right after a GGA, `heading_` may still be from the previous fix (PQTMTAR arrives ~50 ms later). An empty
-field keeps the value of the previous call. Use epochs when position and heading must belong to the same fix. Call
-it from one place only (it converts into a copy kept by the driver).
+The newest epoch as `RtkState` (the struct of the old `getNMEA()`): every field comes from the same fix. A field
+that is not valid in that epoch (e.g. the position without a fix) keeps its previous value; all are 0 until the
+first epoch. For the validity flags, use `getMostRecentEpoch()`.
 
 ---
 
@@ -259,7 +265,7 @@ it from one place only (it converts into a copy kept by the driver).
 | `lines`, `long_lines` | lines assembled; lines too long (garbage) | `long_lines` 0 |
 | `ok_*`, `bad_*` | sentences with a valid / failed checksum, by type. `ok_other`: VTG, plus the sentences the driver doesn't use (skipped after their header, checksum not checked) | `bad_*` 0 |
 | `closed[GNSS_CLOSE_*]` | epochs closed, by reason | mostly `COMPLETE` |
-| `overwritten` | epochs dropped before `takeEpoch()` (queue full) | 0 |
+| `overwritten` | epochs dropped before `popOldestEpoch()` (queue full) | 0 if the firmware pops epochs |
 | `rtcm_bytes`, `rtcm_dropped` | correction bytes queued; frames dropped (TX ring full) | `rtcm_dropped` 0 |
 
 ---
@@ -314,7 +320,7 @@ the firmware alike (it changes the struct layout: never define it only in the fi
 
 Comparing the two separates "the module does not send it" from "the driver loses it". Both take corrections from
 USB, framed as the phone app does (`$=` + 2-byte little-endian length + payload), so a PC can play the phone.
-The epoch mode also takes `$#<d>` (d = 1..7, `GNSS_SENTENCE_*` bits) to change the sentence set without
+The epoch mode also takes `$#<h>` (h = one hex digit 1..f, `GNSS_SENTENCE_*` bits) to change the sentence set without
 reflashing.
 
 - **Default UART:** uart0, TX pin 0, RX pin 1, 460800 baud. Change with `UART_ID`, `UART_TX_PIN`, `UART_RX_PIN`,
@@ -363,7 +369,7 @@ NTRIP settings go in a file outside any repository, e.g. `~/.config/mx01/ntrip.y
 cd software/scripts/lc29h
 python3 gnss_bench.py --ntrip-check 15        # caster reachable? RTCM message types received
 python3 gnss_bench.py --port /dev/ttyACM0 --step "C all rtcm on" --firmware rp_lc29h_debug \
-    --duration 300 --out ~/gnss_runs --sentences 7 [--no-ntrip]
+    --duration 300 --out ~/gnss_runs --sentences 15 [--no-ntrip]
 python3 gnss_bench_analyze.py ~/gnss_runs/<run> [~/gnss_runs/<run> ...]
 python3 test_gnss_bench_analyze.py
 ```
@@ -383,9 +389,9 @@ configured "with EPE" (section 7) unless noted.
 | Step | Firmware | Corrections | Checks | Pass when |
 |---|---|---|---|---|
 | A | `rp_lc29h_sniffer` | on | what the module sends | `sentences_per_s`: GNGGA, PQTMTAR, PQTMEPE ≈ 10; `missing_pct_of_bursts` ≈ 0; overrun 0 |
-| B | `rp_lc29h_debug`, `--sentences 3` | on | default set | `close_reasons` all `complete`; no epoch with flag 0x08 (EPE); PQTMTAR `arrival_after_gga_ms` ≈ 50 |
-| C | `rp_lc29h_debug`, `--sentences 7` | on | full set, corrections | all `complete`; criteria below; RTK float/fixed reached |
-| D | `rp_lc29h_debug`, `--sentences 7`, module in the **default** configuration | on | mismatch shows | every close `timeout`; `ok.epe` = 0 |
+| B | `rp_lc29h_debug`, `--sentences 11` | on | default set | `close_reasons` all `complete`; no epoch with flag 0x08 (EPE); PQTMTAR `arrival_after_gga_ms` ≈ 50 |
+| C | `rp_lc29h_debug`, `--sentences 15` | on | full set, corrections | all `complete`; criteria below; RTK float/fixed reached |
+| D | `rp_lc29h_debug`, `--sentences 15`, module in the **default** configuration | on | mismatch shows | every close `timeout`; `ok.epe` = 0 |
 | E | `rp_lc29h_debug` | off (`--no-ntrip`) | without corrections | criteria below |
 
 Criteria for an epoch-mode run (`report.yaml`):
@@ -417,15 +423,17 @@ Reading other numbers:
 |---|---|
 | `LC29HDriver(uart_inst_t *uart)` | constructor |
 | `bool begin(rx_pin, tx_pin, baud, parse_period_ms = 10)` | UART (8N1, FIFOs), RX DMA channel, rings, interrupt, parse timer (0: manual mode) |
-| `bool takeEpoch(GnssEpoch *)` | oldest closed epoch (protected, call in a loop) |
-| `void setEpochSentences(mask)`, `epochSentences()` | sentence set (default GGA + PQTMTAR) |
+| `bool popOldestEpoch(GnssEpoch *)` | removes and returns the oldest closed epoch (call in a loop) |
+| `bool getMostRecentEpoch(GnssEpoch *)` | newest closed epoch, queue unchanged |
+| `void getState(RtkState *)` | newest closed epoch as `RtkState` |
+| `void setEpochSentences(mask)`, `epochSentences()` | sentence set (default GGA + VTG + PQTMTAR) |
 | `void setEpochTimeoutMs(ms)` | epoch timeout (default 90 ms) |
-| `void getState(RtkState *)` | newest GGA / PQTMTAR / VTG values |
 | `uint8_t process(now_ms)` | manual mode only: parse, close epochs |
 | `void writeCorrections(data, size)` | queue corrections (non-blocking after `begin()`) |
 | `const LC29HStats &stats()` | counters |
 | `formatEpochDebugLine()`, `formatStatsDebugLines()` | debug lines (`rp_agrolib_lc29h_debug` only) |
-| `getNMEA()` | deprecated: use `begin()` + `takeEpoch()` / `getState()` |
+| `takeEpoch()` | deprecated: renamed `popOldestEpoch()` |
+| `getNMEA()` | deprecated: use `begin()` + the epoch methods |
 | `getPQMT()`, `getPair()` | unchanged |
 
 ### Build-time options
