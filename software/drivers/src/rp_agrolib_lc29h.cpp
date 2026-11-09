@@ -216,7 +216,7 @@ void LC29HDriver::countUartErrors() {
 void LC29HDriver::handleLine(const char *line, uint16_t len, uint32_t now_ms) {
     // Interrupt context, kept short: no conversion to numbers here (atof and the like are slow on the RP2040,
     // which has no floating-point unit). The sentences are only checked, copied as text and grouped into epochs;
-    // takeEpoch() and getState() convert them in the caller's context
+    // the methods that read the epochs convert them in the caller's context
     bool ok = line[0] == '$' && validateChecksum(line);
     countSentence(line, ok);
     if (!ok) {
@@ -224,7 +224,6 @@ void LC29HDriver::handleLine(const char *line, uint16_t len, uint32_t now_ms) {
     }
 
     if (strncmp(line, "$GNGGA", 6) == 0) {
-        storeStateText(state_gga_, line, len);
         // GGA starts the epoch of a new fix: whatever is still open belongs to the previous one
         if (epoch_open_) {
             closeEpoch(GNSS_CLOSE_NEXT_GGA);
@@ -232,7 +231,6 @@ void LC29HDriver::handleLine(const char *line, uint16_t len, uint32_t now_ms) {
         prepareEpoch(GNSS_SENTENCE_GGA, now_ms);
         memcpy(open_epoch_.gga_, line, len + 1);
     } else if (strncmp(line, "$PQTMTAR", 8) == 0) {
-        storeStateText(state_tar_, line, len);
         // Sentences outside the set are not part of epochs: they never open, join or close one
         if (!(epoch_sentences_ & GNSS_SENTENCE_PQTMTAR)) {
             return;
@@ -254,10 +252,15 @@ void LC29HDriver::handleLine(const char *line, uint16_t len, uint32_t now_ms) {
         open_epoch_.epoch_.epe_after_ms_ = (uint16_t) (now_ms - epoch_opened_ms_);
 #endif
         memcpy(open_epoch_.epe_, line, len + 1);
-    } else {
-        if (strncmp(line, "$GNVTG", 6) == 0) {
-            storeStateText(state_vtg_, line, len);
+    } else if (strncmp(line, "$GNVTG", 6) == 0) {
+        if (!(epoch_sentences_ & GNSS_SENTENCE_VTG)) {
+            return;
         }
+        // VTG has no time field: the module sends it right after the GGA of the same fix (before PQTMEPE and
+        // PQTMTAR), so it belongs to the epoch that is open
+        prepareEpoch(GNSS_SENTENCE_VTG, now_ms);
+        memcpy(open_epoch_.vtg_, line, len + 1);
+    } else {
         return;
     }
 
@@ -266,60 +269,72 @@ void LC29HDriver::handleLine(const char *line, uint16_t len, uint32_t now_ms) {
     }
 }
 
-void LC29HDriver::storeStateText(char *dst, const char *line, uint16_t len) {
+bool LC29HDriver::newestEpoch(GnssEpoch *epoch, uint32_t *closes) {
+    // Under the lock: whether the converted copy is still the newest (then copy it, ~100 B) or the newest epoch's
+    // text (~600 B). The queue (head, count) is not touched
+    EpochText t;
     critical_section_enter_blocking(&lock_);
-    memcpy(dst, line, len + 1);
+    uint32_t newest = closes_;
+    bool converted = newest != 0 && latest_closes_ == newest;
+    if (converted) {
+        *epoch = latest_;
+    } else if (newest != 0) {
+        t = ready_[latest_idx_];
+    }
     critical_section_exit(&lock_);
+    *closes = newest;
+    if (newest == 0 || converted) {
+        return newest != 0;
+    }
+
+    convertEpoch(&t);
+    critical_section_enter_blocking(&lock_);
+    // Kept only if still the newest: another caller may have stored a newer one meanwhile
+    if (closes_ == newest) {
+        latest_ = t.epoch_;
+        latest_closes_ = newest;
+    }
+    critical_section_exit(&lock_);
+    *epoch = t.epoch_;
+    return true;
 }
 
-void LC29HDriver::updateState(RtkState &st, char **fields, int n) {
-    // Same values as the old getNMEA(). Empty fields leave the value as it was
-    if (strcmp(fields[0], "$GNGGA") == 0) {
-        // $GNGGA,1 UTC,2 Lat,3 N/S,4 Lon,5 E/W,6 Quality,7 NumSatUsed,8 HDOP,9 Alt,...
-        if (n > 1 && fields[1][0] != '\0')
-            st.utc_ = atof(fields[1]);
-        if (n > 5 && fields[2][0] != '\0' && fields[4][0] != '\0') {
-            st.latitude_ = convertToDegrees(atof(fields[2]));
-            if (fields[3][0] == 'S')
-                st.latitude_ = -st.latitude_;
-            st.longitude_ = convertToDegrees(atof(fields[4]));
-            if (fields[5][0] == 'W')
-                st.longitude_ = -st.longitude_;
-        }
-        if (n > 6 && fields[6][0] != '\0')
-            st.fix_status_ = (uint8_t) atoi(fields[6]);
-        if (n > 7 && fields[7][0] != '\0')
-            st.num_satellites_ = (uint16_t) atoi(fields[7]);
-        if (n > 9 && fields[9][0] != '\0')
-            st.altitude_ = atof(fields[9]);
-    } else if (strcmp(fields[0], "$PQTMTAR") == 0) {
-        // $PQTMTAR,...,8 Heading,...
-        if (n > 8 && fields[8][0] != '\0')
-            st.heading_ = atof(fields[8]);
-    } else if (strcmp(fields[0], "$GNVTG") == 0) {
-        // $GNVTG,1 COG_T,2 T,3 COG_M,4 M,5 SOG_kn,6 N,7 SOG_kmh,8 K,...
-        if (n > 7 && fields[7][0] != '\0')
-            st.speed_kph_ = atof(fields[7]);
-    }
+bool LC29HDriver::getMostRecentEpoch(GnssEpoch *epoch) {
+    uint32_t closes;
+    return newestEpoch(epoch, &closes);
 }
 
 void LC29HDriver::getState(RtkState *rtk_state) {
-    // Copy the newest sentences under the lock (bytes only), then convert them outside it
-    char text[3][LC29H_LINE_MAX];
-    critical_section_enter_blocking(&lock_);
-    strcpy(text[0], state_gga_);
-    strcpy(text[1], state_tar_);
-    strcpy(text[2], state_vtg_);
-    critical_section_exit(&lock_);
+    GnssEpoch e = {};
+    uint32_t closes;
+    bool got = newestEpoch(&e, &closes);
+    // hhmmss.sss as the old getNMEA() gave it (the GGA time field as a number)
+    uint32_t s = e.utc_ms_ / 1000;
+    double utc = (s / 3600) * 10000.0 + (s / 60 % 60) * 100.0 + s % 60 + (e.utc_ms_ % 1000) / 1000.0;
 
-    char *fields[24];
-    for (int i = 0; i < 3; i++) {
-        if (text[i][0] != '\0') {
-            int n = splitFields(text[i], fields, 24);
-            updateState(state_, fields, n);
+    critical_section_enter_blocking(&lock_);
+    // Only from a newer epoch than the last one used: two callers must not put an older fix back
+    if (got && closes != state_closes_) {
+        state_closes_ = closes;
+        if (e.flags_ & GNSS_VALID_TIME)
+            state_.utc_ = utc;
+        if (e.flags_ & GNSS_VALID_POSITION) {
+            state_.latitude_ = e.latitude_;
+            state_.longitude_ = e.longitude_;
         }
+        if (e.flags_ & GNSS_VALID_ALTITUDE)
+            state_.altitude_ = e.altitude_;
+        if (e.sentences_ & GNSS_SENTENCE_GGA) {
+            state_.fix_status_ = e.fix_quality_;
+            state_.num_satellites_ = e.num_satellites_;
+        }
+        if (e.flags_ & GNSS_VALID_HEADING)
+            state_.heading_ = e.heading_;
+        if (e.flags_ & GNSS_VALID_SPEED)
+            state_.speed_kph_ = e.speed_kph_;
     }
     *rtk_state = state_;
+    critical_section_exit(&lock_);
 }
 
 void LC29HDriver::setEpochSentences(uint8_t sentences) {
@@ -394,7 +409,7 @@ void LC29HDriver::dispatchSentence(const char *line, RtkState *rtk_state) {
     }
 }
 
-bool LC29HDriver::takeEpoch(struct GnssEpoch *epoch) {
+bool LC29HDriver::popOldestEpoch(struct GnssEpoch *epoch) {
     // The parse (timer interrupt, possibly on the other core) adds to the queue while this removes from it:
     // the copy and the head/count update must be one step, or an epoch can be overwritten mid-copy or the count
     // lose an update. The critical section blocks interrupts on this core and the other core's access. Only
@@ -430,6 +445,9 @@ void LC29HDriver::convertEpoch(EpochText *t) {
     }
     if (e.sentences_ & GNSS_SENTENCE_PQTMEPE) {
         parsePQTMEPEFields(e, fields, splitFields(t->epe_, fields, 24));
+    }
+    if (e.sentences_ & GNSS_SENTENCE_VTG) {
+        parseVTGFields(e, fields, splitFields(t->vtg_, fields, 24));
     }
 }
 
@@ -481,15 +499,17 @@ void LC29HDriver::closeEpoch(uint8_t reason) {
 #endif
     open_epoch_.epoch_.seq_ = ++seq_;
     stats_.closed[reason]++;
-    ready_[(ready_head_ + ready_count_) % GNSS_EPOCH_QUEUE_MAX] = open_epoch_;
+    latest_idx_ = (ready_head_ + ready_count_) % GNSS_EPOCH_QUEUE_MAX;
+    ready_[latest_idx_] = open_epoch_;
     ready_count_++;
+    closes_++;
     critical_section_exit(&lock_);
     epoch_open_ = false;
     epochs_closed_++;
 }
 
 void LC29HDriver::parseGGAFields(GnssEpoch &e, char **fields, int n) {
-    // $GNGGA,1 UTC,2 Lat,3 N/S,4 Lon,5 E/W,6 Quality,7 NumSatUsed,...
+    // $GNGGA,1 UTC,2 Lat,3 N/S,4 Lon,5 E/W,6 Quality,7 NumSatUsed,8 HDOP,9 Alt,...
     if (n > 6 && fields[6][0] != '\0') {
         e.fix_quality_ = (uint8_t) atoi(fields[6]);
     }
@@ -511,6 +531,12 @@ void LC29HDriver::parseGGAFields(GnssEpoch &e, char **fields, int n) {
         }
         if (e.fix_quality_ >= 1) {
             e.flags_ |= GNSS_VALID_POSITION;
+        }
+    }
+    if (n > 9 && fields[9][0] != '\0') {
+        e.altitude_ = atof(fields[9]);
+        if (e.fix_quality_ >= 1) {
+            e.flags_ |= GNSS_VALID_ALTITUDE;
         }
     }
 }
@@ -541,6 +567,14 @@ void LC29HDriver::parsePQTMEPEFields(GnssEpoch &e, char **fields, int n) {
         e.epe_east_ = atof(fields[3]);
         e.epe_down_ = atof(fields[4]);
         e.flags_ |= GNSS_VALID_EPE;
+    }
+}
+
+void LC29HDriver::parseVTGFields(GnssEpoch &e, char **fields, int n) {
+    // $GNVTG,1 COG_T,2 T,3 COG_M,4 M,5 SOG_kn,6 N,7 SOG_kmh,8 K,9 Mode (N: not valid)
+    if (n > 7 && fields[7][0] != '\0' && !(n > 9 && fields[9][0] == 'N')) {
+        e.speed_kph_ = atof(fields[7]);
+        e.flags_ |= GNSS_VALID_SPEED;
     }
 }
 

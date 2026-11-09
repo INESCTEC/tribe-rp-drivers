@@ -7,7 +7,7 @@ One run = one test step, in its own folder under --out (keep runs outside the re
     meta.yaml    step name, firmware, arguments, start/end
 
     python3 gnss_bench.py --port /dev/ttyACM0 --step "epochs rtcm on" --firmware rp_lc29h_debug --duration 300 \\
-        --out ~/gnss_runs [--no-ntrip] [--sentences 7]
+        --out ~/gnss_runs [--no-ntrip] [--sentences 15]
 
     python3 gnss_bench.py --ntrip-check 15      only connect to the caster and list the RTCM messages received
 
@@ -133,8 +133,9 @@ def add_arguments(ap):
     ap.add_argument('--duration', type=float, default=300.0, help='seconds')
     ap.add_argument('--no-ntrip', action='store_true', help='no corrections (test step without RTCM)')
     ap.add_argument('--ntrip-config', default=os.path.expanduser('~/.config/mx01/ntrip.yaml'))
-    ap.add_argument('--sentences', type=int, choices=range(1, 8), metavar='1..7',
-                    help='rp_lc29h_debug: epoch sentence set (GNSS_SENTENCE_* bits: 1 GGA, 2 PQTMTAR, 4 PQTMEPE)')
+    ap.add_argument('--sentences', type=int, choices=range(1, 16), metavar='1..15',
+                    help='rp_lc29h_debug: epoch sentence set (GNSS_SENTENCE_* bits: 1 GGA, 2 PQTMTAR, 4 PQTMEPE, '
+                         '8 VTG)')
     ap.add_argument('--out', help='folder for the runs (outside the repository); required for a run')
 
 
@@ -160,7 +161,7 @@ def run(a, on_start=None, on_stop=None):
     usb_log = Logger(os.path.join(out, 'usb.log'))
     usb_log.write('#step %s' % a.step)
     if a.sentences:
-        ser.write(b'$#%d' % a.sentences)
+        ser.write(b'$#%x' % a.sentences)
     threads = [threading.Thread(target=usb_thread, args=(ser, usb_log, stop), daemon=True)]
     if not a.no_ntrip:
         cfg = yaml.safe_load(open(a.ntrip_config))

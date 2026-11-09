@@ -9,7 +9,7 @@
  *       <ring_overflow>,<ring_max>,<line_too_long>,<rtcm_frames>,<rtcm_bytes>"
  * Both modes take corrections from USB framed as the phone app does ("$=" + 2-byte little-endian length +
  * payload) and pass them to the module, so the PC (scripts/lc29h/gnss_bench.py) can play the phone.
- * Epoch mode also takes "$#<d>" (d = 1..7, GNSS_SENTENCE_* bits) to change the epoch sentence set.
+ * Epoch mode also takes "$#<h>" (h = one hex digit 1..f, GNSS_SENTENCE_* bits) to change the epoch sentence set.
  *
  * Board start-up: lc29h_debug_board_start() only starts USB stdio. A board that needs more before USB
  * works (e.g. USB-C power delivery) builds this file from its own repository with a file that defines it.
@@ -172,7 +172,7 @@ static void mode_poll() {
 
     // Every closed epoch waiting in the driver's queue
     GnssEpoch e;
-    while (gnss.takeEpoch(&e)) {
+    while (gnss.popOldestEpoch(&e)) {
         uint32_t take_ms = to_ms_since_boot(get_absolute_time());
         gnss.formatEpochDebugLine(&e, buf, sizeof(buf));
         // No CAN here: "done" = printed, right after the take
@@ -219,8 +219,10 @@ static void poll_usb_input() {
                 }
                 break;
             case 5:
-                if (c >= '1' && c <= '7')
+                if (c >= '1' && c <= '9')
                     set_epoch_sentences((uint8_t) (c - '0'));
+                else if (c >= 'a' && c <= 'f')
+                    set_epoch_sentences((uint8_t) (c - 'a' + 10));
                 state = 0;
                 break;
         }

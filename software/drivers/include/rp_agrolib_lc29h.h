@@ -50,26 +50,32 @@ static_assert((LC29H_RX_RING_SIZE & (LC29H_RX_RING_SIZE - 1)) == 0 && LC29H_RX_R
 #define GNSS_VALID_EPE (1 << 3)          // PQTMEPE north/east/down present
 #define GNSS_VALID_TIME (1 << 4)         // GGA UTC time present
 #define GNSS_VALID_CLIPPED (1 << 5)      // set by the encoder: a value did not fit and was clipped
+#define GNSS_VALID_ALTITUDE (1 << 6)     // GGA altitude present and fix quality >= 1
+#define GNSS_VALID_SPEED (1 << 7)        // VTG speed present and its mode is not N (not valid)
 
 // GnssEpoch::sentences_ (which sentences of the epoch arrived) and setEpochSentences()
 #define GNSS_SENTENCE_GGA (1 << 0)
 #define GNSS_SENTENCE_PQTMTAR (1 << 1)
 #define GNSS_SENTENCE_PQTMEPE (1 << 2)
-#define GNSS_SENTENCE_ALL (GNSS_SENTENCE_GGA | GNSS_SENTENCE_PQTMTAR | GNSS_SENTENCE_PQTMEPE)
-#define GNSS_SENTENCE_DEFAULT (GNSS_SENTENCE_GGA | GNSS_SENTENCE_PQTMTAR)  // the sentences used before PQTMEPE
+#define GNSS_SENTENCE_VTG (1 << 3)
+#define GNSS_SENTENCE_ALL (GNSS_SENTENCE_GGA | GNSS_SENTENCE_PQTMTAR | GNSS_SENTENCE_PQTMEPE | GNSS_SENTENCE_VTG)
+// GGA + VTG + PQTMTAR: what the module sends after its factory settings and the PQTMTAR rate (docs/lc29h.md).
+// VTG comes right after GGA and PQTMTAR ~50 ms later, so VTG does not make an epoch wait longer
+#define GNSS_SENTENCE_DEFAULT (GNSS_SENTENCE_GGA | GNSS_SENTENCE_PQTMTAR | GNSS_SENTENCE_VTG)
 
 // Default for setEpochTimeoutMs(). Measured on the LC29H EA at 10 Hz: PQTMTAR arrives ~50 ms after GGA,
 // so this must be above that and below the 100 ms fix period
 #define GNSS_EPOCH_TIMEOUT_MS 90
 
-// Closed epochs kept for takeEpoch(); when full, the oldest is dropped (LC29HStats::overwritten)
+// Closed epochs kept for popOldestEpoch(); when full, the oldest is dropped (LC29HStats::overwritten)
 #define GNSS_EPOCH_QUEUE_MAX 8
 
-/// One GNSS solution: the GGA, PQTMTAR and PQTMEPE sentences the module prints for the same fix
+/// One GNSS solution: the GGA, VTG, PQTMTAR and PQTMEPE sentences the module prints for the same fix
 struct GnssEpoch {
     uint32_t utc_ms_;          // UTC time of the fix, ms since 00:00
     double latitude_;          // deg, south negative
     double longitude_;         // deg, west negative
+    double altitude_;          // m above mean sea level (GGA)
     uint8_t fix_quality_;      // GGA quality: 0 invalid, 1 GPS, 2 DGPS, 4 RTK fixed, 5 RTK float, 6 dead reckoning
     uint8_t num_satellites_;   // satellites used in the position
     double heading_;           // deg, 0-360
@@ -79,6 +85,7 @@ struct GnssEpoch {
     double epe_north_;         // m
     double epe_east_;          // m
     double epe_down_;          // m
+    double speed_kph_;         // speed over ground, km/h (VTG)
     uint8_t flags_;            // GNSS_VALID_*
     uint8_t sentences_;        // GNSS_SENTENCE_*
     uint8_t seq_;              // closing order: +1 per epoch closed (wraps), the first closed is 1
@@ -115,7 +122,7 @@ struct LC29HStats {
                                       // skipped after their header without checking the checksum
     uint32_t bad_gga, bad_tar, bad_epe, bad_other;  // checksum failed (or no checksum), by sentence prefix
     uint32_t closed[5];                             // epochs closed, by GNSS_CLOSE_* (index 0 unused)
-    uint32_t overwritten;  // closed epochs dropped for a newer one before takeEpoch() read them (queue full)
+    uint32_t overwritten;  // closed epochs dropped for a newer one before popOldestEpoch() read them (queue full)
 #ifdef LC29H_DEBUG_TIMING
     // Debug only; maxima since the previous formatStatsDebugLines()
     uint32_t irq_max_us;           // longest UART interrupt (TX: corrections)
@@ -154,17 +161,28 @@ public:
     /// Without begin(): writes the frame and waits until it is sent, as before.
     void writeCorrections(uint8_t *data, uint16_t size);
 
-    /// Copies the oldest closed epoch not yet taken into *epoch. Returns false if there is none. Call it in a
-    /// loop until it returns false: several epochs may be waiting. Safe from anywhere (it protects the queue
-    /// from the parse timer, on either core). The parse only stores the sentences as text; they are converted
-    /// to numbers here, in the caller's context.
-    bool takeEpoch(struct GnssEpoch *epoch);
+    // Reading the epochs. All three are safe from anywhere (the parse timer and either core): they copy under
+    // the driver's lock and convert the text to numbers outside it, in the caller's context.
 
-    /// Copies the newest GGA, PQTMTAR and VTG values into *rtk_state. Each field holds the newest sentence of
-    /// its type, so position and heading may belong to different fixes: use epochs when that matters. An empty
-    /// field keeps the value of the previous call. The sentences are converted here, in the caller's context:
-    /// call it from one place only (not from two cores at once).
+    /// Every fix, in order: removes the oldest closed epoch from the queue and copies it into *epoch. Returns
+    /// false if the queue is empty. Call it in a loop until it returns false: several epochs may be waiting.
+    /// The queue keeps the newest GNSS_EPOCH_QUEUE_MAX; older ones are dropped (stats().overwritten).
+    bool popOldestEpoch(struct GnssEpoch *epoch);
+
+    /// The newest fix, whenever needed: copies the newest closed epoch into *epoch without removing anything
+    /// from the queue (popOldestEpoch() still returns it in its turn). Returns false until the first epoch
+    /// closes. Each epoch is converted once; calls that find the same epoch copy the converted result. A new
+    /// epoch is told by its seq_.
+    bool getMostRecentEpoch(struct GnssEpoch *epoch);
+
+    /// The newest fix as RtkState (the struct of the old getNMEA()), from getMostRecentEpoch(): every field
+    /// comes from the same fix. A field that is not valid in that epoch (its GNSS_VALID_* bit is 0, e.g. the
+    /// position without a fix) keeps the value it had, as before; all are 0 until the first epoch.
     void getState(struct RtkState *rtk_state);
+
+    [[deprecated("renamed popOldestEpoch()")]] bool takeEpoch(struct GnssEpoch *epoch) {
+        return popOldestEpoch(epoch);
+    }
 
     /// Sentences that make up an epoch (GNSS_SENTENCE_*). GGA is always included (it opens the epoch and
     /// carries the time). An epoch is complete when all of them arrived; sentences outside the set are
@@ -187,8 +205,8 @@ public:
     /// ring and size its write index. Parses only the sentences that arrived since the previous call, so
     /// rtk_state holds the newest ones. A size smaller than the previous one means the ring wrapped; the
     /// ring length is unknown here, so the sentence across the wrap is skipped (one update, ~100 ms).
-    [[deprecated("use begin() + takeEpoch() / getState()")]] void getNMEA(uint16_t size, struct RtkState *rtk_state,
-                                                                           uint8_t *data);
+    [[deprecated("use begin() + popOldestEpoch() / getMostRecentEpoch() / getState()")]]
+    void getNMEA(uint16_t size, struct RtkState *rtk_state, uint8_t *data);
     void getPQMT(uint16_t in_size, char *pqmt, uint8_t *data, uint16_t *out_size);
     void getPair(uint16_t in_size, char *pair, uint8_t *data, uint16_t *out_size);
 
@@ -219,7 +237,8 @@ private:
     bool begun_ = false;
     LC29HStats stats_ = {};
 
-    // Shared between the parse (timer interrupt) and the firmware: the epoch queue, state_ and the settings
+    // Shared between the parse (timer interrupt) and the firmware: the epoch queue, the newest epoch and its
+    // converted copy, state_ and the settings
     critical_section_t lock_;
     struct repeating_timer parse_timer_;
     static bool parseTimerCb(struct repeating_timer *t);
@@ -262,21 +281,13 @@ private:
     void handleLine(const char *line, uint16_t len, uint32_t now_ms);
     void dispatchSentence(const char *line, struct RtkState *rtk_state);  // getNMEA() only
 
-    // Newest GGA, PQTMTAR and VTG as received (written by the parse under lock_); getState() converts them
-    // into state_, which keeps the values of empty fields
-    char state_gga_[LC29H_LINE_MAX] = "";
-    char state_tar_[LC29H_LINE_MAX] = "";
-    char state_vtg_[LC29H_LINE_MAX] = "";
-    RtkState state_ = {};
-    void storeStateText(char *dst, const char *line, uint16_t len);
-    void updateState(struct RtkState &st, char **fields, int n);
-
-    // An epoch as the parse stores it: the sentences as received. takeEpoch() fills epoch_'s values from them
+    // An epoch as the parse stores it: the sentences as received. convertEpoch() fills epoch_'s values from them
     struct EpochText {
         GnssEpoch epoch_;  // sentences_, seq_, close_reason_ (and the debug timing) are set by the parse
         char gga_[LC29H_LINE_MAX];
         char tar_[LC29H_LINE_MAX];
         char epe_[LC29H_LINE_MAX];
+        char vtg_[LC29H_LINE_MAX];
     };
 
     // Epoch state (written only by the parse, except the queue: lock_)
@@ -285,10 +296,21 @@ private:
     uint32_t epoch_opened_ms_ = 0;
     uint16_t epoch_timeout_ms_ = GNSS_EPOCH_TIMEOUT_MS;
     uint8_t epoch_sentences_ = GNSS_SENTENCE_DEFAULT;
-    EpochText ready_[GNSS_EPOCH_QUEUE_MAX] = {};  // closed epochs not yet taken, oldest at ready_head_
+    EpochText ready_[GNSS_EPOCH_QUEUE_MAX] = {};  // closed epochs not yet popped, oldest at ready_head_
     uint8_t ready_head_ = 0;
     uint8_t ready_count_ = 0;
     uint8_t seq_ = 0;  // seq_ of the newest closed epoch
+
+    // The newest closed epoch is ready_[latest_idx_]: the next close always writes the slot after it, so it stays
+    // there (popped or not) until a newer one replaces it. closes_ counts every close (32 bits: unlike the 8-bit
+    // seq_ it does not wrap in practice), so it tells whether latest_ (converted) is still the newest
+    uint8_t latest_idx_ = 0;
+    uint32_t closes_ = 0;
+    GnssEpoch latest_ = {};
+    uint32_t latest_closes_ = 0;  // closes_ of latest_; 0: none converted yet
+    RtkState state_ = {};          // getState(): fields not valid in the newest epoch keep their value
+    uint32_t state_closes_ = 0;    // closes_ of the epoch state_ was last updated from
+    bool newestEpoch(struct GnssEpoch *epoch, uint32_t *closes);
     uint8_t epochs_closed_ = 0;
     uint32_t now_ms_ = 0;  // time of the current parse
 
@@ -300,6 +322,7 @@ private:
     void parseGGAFields(GnssEpoch &e, char **fields, int n);
     void parsePQTMTARFields(GnssEpoch &e, char **fields, int n);
     void parsePQTMEPEFields(GnssEpoch &e, char **fields, int n);
+    void parseVTGFields(GnssEpoch &e, char **fields, int n);
     static int splitFields(char *line, char **fields, int max_fields);
     static bool parseUtcMs(const char *field, uint32_t *utc_ms);
 
