@@ -144,8 +144,9 @@ So `popOldestEpoch()` copies the epoch and updates the count inside a **critical
 (`critical_section_enter_blocking()` … `critical_section_exit()`, from `pico/critical_section.h`). It disables
 interrupts on the calling core and takes a hardware spin lock, so the parse can't run in between, on this core or
 the other one. It lasts a few microseconds (only bytes are copied; the conversion to numbers comes after, outside
-it). An interrupt that becomes due meanwhile is not lost: it runs right after. The parse holds the same lock only while it writes into the queue, and `getMostRecentEpoch()`, `getState()` and
-the setters use it too. The firmware never needs to disable interrupts itself.
+it). An interrupt that becomes due meanwhile is not lost: it runs right after. The parse holds the same lock only
+while it writes into the queue, and `getMostRecentEpoch()`, `getState()` and the setters use it too. The firmware
+never needs to disable interrupts itself.
 
 ### Rules
 - **Call `begin()` once**, before the other calls except the settings. It returns `false` if the UART's interrupt
@@ -279,7 +280,7 @@ The sentence set (section 3) must match what the module sends. Two configuration
 
 | Configuration | For | Commands |
 |---|---|---|
-| **default** | `GNSS_SENTENCE_DEFAULT` | `$PQTMRESTOREPAR*13` (factory settings), `$PQTMCFGMSGRATE,W,PQTMTAR,1,1*09` (heading on every fix), `$PQTMSAVEPAR*5A` (save) |
+| **default** | `GNSS_SENTENCE_DEFAULT` | `$PQTMRESTOREPAR*13` (factory settings, which send GGA and VTG), `$PQTMCFGMSGRATE,W,PQTMTAR,1,1*09` (heading on every fix), `$PQTMSAVEPAR*5A` (save) |
 | **with EPE** | `GNSS_SENTENCE_ALL` | the above, plus `$PQTMCFGMSGRATE,W,PQTMEPE,1,2*1D` (`$PQTMEPE` version 2 on every fix) before `$PQTMSAVEPAR*5A` |
 
 Useful extras:
@@ -388,7 +389,7 @@ configured "with EPE" (section 7) unless noted.
 
 | Step | Firmware | Corrections | Checks | Pass when |
 |---|---|---|---|---|
-| A | `rp_lc29h_sniffer` | on | what the module sends | `sentences_per_s`: GNGGA, PQTMTAR, PQTMEPE ≈ 10; `missing_pct_of_bursts` ≈ 0; overrun 0 |
+| A | `rp_lc29h_sniffer` | on | what the module sends | `sentences_per_s`: GNGGA, GNVTG, PQTMTAR, PQTMEPE ≈ 10; `missing_pct_of_bursts` ≈ 0; overrun 0 |
 | B | `rp_lc29h_debug`, `--sentences 11` | on | default set | `close_reasons` all `complete`; no epoch with flag 0x08 (EPE); PQTMTAR `arrival_after_gga_ms` ≈ 50 |
 | C | `rp_lc29h_debug`, `--sentences 15` | on | full set, corrections | all `complete`; criteria below; RTK float/fixed reached |
 | D | `rp_lc29h_debug`, `--sentences 15`, module in the **default** configuration | on | mismatch shows | every close `timeout`; `ok.epe` = 0 |
@@ -401,7 +402,7 @@ Criteria for an epoch-mode run (`report.yaml`):
 | `epochs_closed_by_rp2040` = `fixes_expected_from_utc` | equal | fixes never parsed: see `uart_overrun`, `rx_ring_dropped` |
 | `rp2040_counters_over_run.uart_overrun` | 0 | bytes lost in the UART although the DMA empties it: report it (DMA channel stopped?) |
 | `rp2040_counters_over_run.rx_ring_dropped` | 0 | parse calls too rare |
-| `epochs_not_reported`, `overwritten_before_taken` | 0 | the firmware takes epochs too slowly |
+| `epochs_not_reported`, `overwritten_before_taken` | 0 | the firmware pops epochs too slowly |
 | `checksum_failed` | 0 | noise, baud rate, wiring |
 | `close_reasons` | `complete` only (a few `next_gga` / `repeat` at start-up) | `timeout` everywhere: sentence set ≠ module configuration |
 | `rtcm_dropped` | 0 | corrections faster than the UART |

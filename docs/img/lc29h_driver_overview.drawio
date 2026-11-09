@@ -19,7 +19,7 @@
         <mxCell id="c6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#f6f6f4;strokeColor=none;verticalAlign=top;align=left;spacingLeft=10;fontSize=14;fontColor=#55554f;" value="SEND &amp;nbsp;you → driver → module" vertex="1">
           <mxGeometry height="145" width="850" x="275" y="355" as="geometry" />
         </mxCell>
-        <mxCell id="c7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#f3effa;strokeColor=#7a5bb5;" value="&lt;b&gt;LC29H module A&lt;/b&gt;&lt;br&gt;&lt;br&gt;sends &lt;b&gt;NMEA&lt;/b&gt; sentences&lt;br&gt;(GGA, PQTMTAR, PQTMEPE…)&lt;br&gt;10 times per second&lt;br&gt;&lt;br&gt;&lt;br&gt;receives &lt;b&gt;RTCM&lt;/b&gt;&lt;br&gt;corrections → RTK" vertex="1">
+        <mxCell id="c7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#f3effa;strokeColor=#7a5bb5;" value="&lt;b&gt;LC29H module A&lt;/b&gt;&lt;br&gt;&lt;br&gt;sends &lt;b&gt;NMEA&lt;/b&gt; sentences&lt;br&gt;(GGA, VTG, PQTMTAR, PQTMEPE…)&lt;br&gt;10 times per second&lt;br&gt;&lt;br&gt;&lt;br&gt;receives &lt;b&gt;RTCM&lt;/b&gt;&lt;br&gt;corrections → RTK" vertex="1">
           <mxGeometry height="320" width="180" x="30" y="150" as="geometry" />
         </mxCell>
         <mxCell id="c8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eeeeec;strokeColor=#8c8c86;" value="&lt;b&gt;DMA channel&lt;/b&gt;&lt;br&gt;RX FIFO → ring&lt;br&gt;hardware: no CPU,&lt;br&gt;no interrupt" vertex="1">
@@ -31,17 +31,17 @@
         <mxCell id="c10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#fff4e5;strokeColor=#d98200;" value="&lt;b&gt;Parse timer&lt;/b&gt;&lt;br&gt;every 10 ms&lt;br&gt;&lt;br&gt;bytes → lines&lt;br&gt;checksum, keeps text&lt;br&gt;groups one fix" vertex="1">
           <mxGeometry height="125" width="175" x="630" y="160" as="geometry" />
         </mxCell>
-        <mxCell id="c11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;Epoch queue&lt;/b&gt; (8)&lt;br&gt;GGA + PQTMTAR&lt;br&gt;[+ PQTMEPE if configured]" vertex="1">
+        <mxCell id="c11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;Epoch queue&lt;/b&gt; (8)&lt;br&gt;GGA + VTG + PQTMTAR&lt;br&gt;[+ PQTMEPE if configured]" vertex="1">
           <mxGeometry height="85" width="220" x="900" y="165" as="geometry" />
         </mxCell>
-        <mxCell id="c12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;RtkState&lt;/b&gt;&lt;br&gt;latest values" vertex="1">
-          <mxGeometry height="50" width="210" x="900" y="265" as="geometry" />
+        <mxCell id="c12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#e9f5f7;strokeColor=#1d8a99;" value="&lt;b&gt;Newest epoch&lt;/b&gt;&lt;br&gt;slot index + converted copy" vertex="1">
+          <mxGeometry height="55" width="220" x="900" y="275" as="geometry" />
         </mxCell>
-        <mxCell id="c13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eef7f1;strokeColor=#1f9d63;" value="&lt;b&gt;while (takeEpoch(&amp;amp;e))&lt;/b&gt;&lt;br&gt;use e (send to CAN…)" vertex="1">
+        <mxCell id="c13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eef7f1;strokeColor=#1f9d63;" value="&lt;b&gt;while (popOldestEpoch(&amp;amp;e))&lt;/b&gt;&lt;br&gt;every fix, in order (send to CAN…)" vertex="1">
           <mxGeometry height="70" width="240" x="1230" y="175" as="geometry" />
         </mxCell>
-        <mxCell id="c14" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eef7f1;strokeColor=#1f9d63;" value="&lt;b&gt;getState(&amp;amp;s)&lt;/b&gt; &amp;nbsp;(optional)" vertex="1">
-          <mxGeometry height="50" width="240" x="1230" y="265" as="geometry" />
+        <mxCell id="c14" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=#eef7f1;strokeColor=#1f9d63;" value="&lt;b&gt;getMostRecentEpoch(&amp;amp;e)&lt;/b&gt;&lt;br&gt;&lt;b&gt;getState(&amp;amp;s)&lt;/b&gt;: newest fix, whenever needed" vertex="1">
+          <mxGeometry height="60" width="240" x="1230" y="270" as="geometry" />
         </mxCell>
         <mxCell id="c15" edge="1" parent="1" source="c7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitY=0.227;" target="c8" value="NMEA bytes">
           <mxGeometry relative="1" as="geometry" />
@@ -55,13 +55,13 @@
         <mxCell id="c18" edge="1" parent="1" source="c10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitY=0.3;" target="c11" value="epoch closed">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="c19" edge="1" parent="1" source="c10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitY=0.85;" target="c12" value="">
+        <mxCell id="c19" edge="1" parent="1" source="c11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="c12" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="c20" edge="1" parent="1" source="c11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c13" value="copy (locked)&lt;br&gt;+ convert">
+        <mxCell id="c20" edge="1" parent="1" source="c11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c13" value="remove (locked)&lt;br&gt;+ convert">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="c21" edge="1" parent="1" source="c12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c14" value="copy (locked)&lt;br&gt;+ convert">
+        <mxCell id="c21" edge="1" parent="1" source="c12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.6;fontFamily=Helvetica;fontSize=13;fontColor=#1d1d1b;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="c14" value="copy (locked)&lt;br&gt;convert if new">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="c22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;spacing=6;fontFamily=Helvetica;fontSize=15;fontColor=#1d1d1b;fillColor=none;strokeColor=none;align=center;" value="RTCM from the phone (USB)" vertex="1">
