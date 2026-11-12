@@ -572,3 +572,51 @@ target_link_libraries(rp_vl6180_w_mlx90641
         rp_agrolib_vl6180x
         rp_agrolib_mlx90641_melexis
         )
+
+
+##########################################################################
+# ADS868x (ADS8684/ADS8688/ADS8684A/ADS8688A) bench test
+##########################################################################
+# Defaults = SlurrySense 3.0 board. Override with -D<VAR>=<value> at configure time.
+
+set(ADS868X_SPI_PORT "1" CACHE STRING "ADS868x example: SPI port (0 or 1)")
+set(ADS868X_PIN_SCK "14" CACHE STRING "ADS868x example: SCLK GPIO")
+set(ADS868X_PIN_SDI "11" CACHE STRING "ADS868x example: GPIO wired to ADC SDI (RP2040 TX)")
+set(ADS868X_PIN_SDO "8" CACHE STRING "ADS868x example: GPIO wired to ADC SDO (RP2040 RX)")
+set(ADS868X_PIN_CS "16" CACHE STRING "ADS868x example: CS GPIO")
+set(ADS868X_PIN_RST_PD "-1" CACHE STRING "ADS868x example: RST/PD GPIO (-1 = not connected)")
+set(ADS868X_PIN_ALARM "-1" CACHE STRING "ADS868x example: ALARM GPIO (-1 = not connected)")
+set(ADS868X_BAUD "1000000" CACHE STRING "ADS868x example: SPI baud rate in Hz (<= 17 MHz)")
+set(ADS868X_VARIANT "2" CACHE STRING
+        "ADS868x example: 0=ADS8684 1=ADS8688 2=ADS8684A 3=ADS8688A")
+set(ADS868X_OTHER_CS "13,4,17" CACHE STRING
+        "ADS868x example: other CS GPIOs on the same SPI bus, held high (comma separated)")
+
+add_executable(rp_ads868x src/rp_ads868x.cpp)
+
+target_include_directories(rp_ads868x
+        PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../drivers/include)
+
+target_compile_definitions(rp_ads868x PRIVATE
+        ADS868X_SPI_PORT=${ADS868X_SPI_PORT}
+        ADS868X_PIN_SCK=${ADS868X_PIN_SCK}
+        ADS868X_PIN_SDI=${ADS868X_PIN_SDI}
+        ADS868X_PIN_SDO=${ADS868X_PIN_SDO}
+        ADS868X_PIN_CS=${ADS868X_PIN_CS}
+        ADS868X_PIN_RST_PD=${ADS868X_PIN_RST_PD}
+        ADS868X_PIN_ALARM=${ADS868X_PIN_ALARM}
+        ADS868X_BAUD=${ADS868X_BAUD}
+        ADS868X_VARIANT=${ADS868X_VARIANT}
+        ADS868X_OTHER_CS=${ADS868X_OTHER_CS}
+        )
+
+pico_enable_stdio_usb(rp_ads868x 1)
+pico_enable_stdio_uart(rp_ads868x 0)
+
+pico_add_extra_outputs(rp_ads868x)
+
+target_link_libraries(rp_ads868x
+        pico_stdlib
+        hardware_spi
+        rp_agrolib_ads868x
+        )

@@ -533,27 +533,28 @@ install(TARGETS rp_agrolib_bno055
 
 
 ###########################################################################
-# ADS8684 - TI ADC of 16 bits with SPI interface (4 channels)
+# ADS868x - TI 16-bit SAR ADCs with SPI interface
+#           (ADS8684/ADS8688/ADS8684A/ADS8688A, 4 or 8 channels)
 ###########################################################################
 
-add_library(rp_agrolib_ads8684
-        src/rp_agrolib_ads8684.cpp
-        include/rp_agrolib_ads8684.h)
+add_library(rp_agrolib_ads868x
+        src/rp_agrolib_ads868x.cpp
+        include/rp_agrolib_ads868x.h)
 
-pico_enable_stdio_usb(rp_agrolib_ads8684 1)
-pico_enable_stdio_uart(rp_agrolib_ads8684 0)
+pico_enable_stdio_usb(rp_agrolib_ads868x 1)
+pico_enable_stdio_uart(rp_agrolib_ads868x 0)
 
-target_link_libraries(rp_agrolib_ads8684 PUBLIC
+target_link_libraries(rp_agrolib_ads868x PUBLIC
         pico_stdlib
         hardware_spi
         hardware_gpio
         )
 
-target_include_directories(rp_agrolib_ads8684 PUBLIC
+target_include_directories(rp_agrolib_ads868x PUBLIC
 		${CMAKE_CURRENT_SOURCE_DIR}/include
 		)
 
-install(TARGETS rp_agrolib_ads8684
+install(TARGETS rp_agrolib_ads868x
         ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
         LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
         RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin
