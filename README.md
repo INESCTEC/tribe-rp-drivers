@@ -130,7 +130,7 @@ ___
 - [X] FD60 linear actuator
 - [X] LD20 linear actuator
 - [X] MCP23017 16-Bit I/O expander
-- [X] ADS8684 - 16-Bit, 500-kSPS, 4-Ch SAR ADC w/ programmable (±10/±5/±2.5V) input ranges on +5V supply
+- [X] ADS8684 / ADS8688 / ADS8684A / ADS8688A (`ADS868x`, target `rp_agrolib_ads868x`) - 16-Bit, 500-kSPS, 4/8-Ch SAR ADC w/ programmable bipolar/unipolar input ranges (A variants: extra ranges + ALARM) on +5V supply
 - [X] AD7980 - 16-Bit, 1 MSPS, PulSAR ADC in MSOP/LFCSP
 - [X] AD5680 - 5 V 18-Bit nanoDAC® in a SOT-23
 ___
