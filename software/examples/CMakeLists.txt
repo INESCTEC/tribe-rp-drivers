@@ -573,6 +573,35 @@ target_link_libraries(rp_vl6180_w_mlx90641
         rp_agrolib_mlx90641_melexis
         )
 
+##########################################################################
+# LC29H GNSS debug (docs/lc29h.md): epoch mode and sniffer mode
+##########################################################################
+
+add_executable(rp_lc29h_debug src/rp_lc29h_debug.cpp)
+
+pico_enable_stdio_usb(rp_lc29h_debug 1)
+pico_enable_stdio_uart(rp_lc29h_debug 0)
+
+pico_add_extra_outputs(rp_lc29h_debug)
+
+target_link_libraries(rp_lc29h_debug
+        rp_agrolib_lc29h_debug
+        pico_stdlib
+        )
+
+add_executable(rp_lc29h_sniffer src/rp_lc29h_debug.cpp)
+
+target_compile_definitions(rp_lc29h_sniffer PRIVATE LC29H_DEBUG_SNIFFER)
+
+pico_enable_stdio_usb(rp_lc29h_sniffer 1)
+pico_enable_stdio_uart(rp_lc29h_sniffer 0)
+
+pico_add_extra_outputs(rp_lc29h_sniffer)
+
+target_link_libraries(rp_lc29h_sniffer
+        pico_stdlib
+        hardware_uart
+        )
 
 ##########################################################################
 # ADS868x (ADS8684/ADS8688/ADS8684A/ADS8688A) bench test
