@@ -204,27 +204,27 @@ install(TARGETS rp_agrolib_lc29h_debug
 # TFmini Plus - Benewake 1D ToF LiDAR
 ###########################################################################
 
-add_library(rp_agrolib_tfminiplus
-        src/rp_agrolib_tfminiplus.cpp
-        include/rp_agrolib_tfminiplus.h)
+add_library(rp_agrolib_tflidar
+        src/rp_agrolib_tflidar.cpp
+        include/rp_agrolib_tflidar.h)
 
-# target_include_directories(rp_agrolib_tfminiplus PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../interfaces/include)
+# target_include_directories(rp_agrolib_tflidar PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../interfaces/include)
 
-pico_enable_stdio_usb(rp_agrolib_tfminiplus 1)
-pico_enable_stdio_uart(rp_agrolib_tfminiplus 0)
+pico_enable_stdio_usb(rp_agrolib_tflidar 1)
+pico_enable_stdio_uart(rp_agrolib_tflidar 0)
 
-target_link_libraries(rp_agrolib_tfminiplus PUBLIC
+target_link_libraries(rp_agrolib_tflidar PUBLIC
         rp_agrolib_uart
         rp_agrolib_i2c
         pico_stdlib
         # Outras bibliotecas necessárias
         )
 
-target_include_directories(rp_agrolib_tfminiplus PUBLIC
+target_include_directories(rp_agrolib_tflidar PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-install(TARGETS rp_agrolib_tfminiplus
+install(TARGETS rp_agrolib_tflidar
         ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
         LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/lib
         RUNTIME DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bin

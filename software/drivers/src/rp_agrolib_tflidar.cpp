@@ -1,6 +1,6 @@
-#include "../include/rp_agrolib_tfminiplus.h"
+#include "../include/rp_agrolib_tflidar.h"
 
-void get_tfmini_data_from_uart(uart_inst_t *uart, uint8_t *buf, tfminiplus_data_t *lidar_data) {
+void get_tfmini_data_from_uart(uart_inst_t *uart, uint8_t *buf, tf_lidar_data_t *lidar_data) {
     // get beginning frame of lidar data
     while (1) {
         uart_read_blocking(uart, buf, 2);
@@ -28,9 +28,9 @@ void get_tfmini_data_from_uart(uart_inst_t *uart, uint8_t *buf, tfminiplus_data_
 }
 
 void get_tfmini_data_from_i2c(i2c_inst_t *i2c, const uint8_t addr, uint8_t *buf,
-                              tfminiplus_data_t *lidar_data) {
+                              tf_lidar_data_t *lidar_data) {
     // send command to read data
-    i2c_write_blocking(i2c, addr, TFMINIPLUS_GET_DATA_I2C_CMD, 5, true);
+    i2c_write_blocking(i2c, addr, TF_LIDAR_GET_DATA_I2C_CMD, 5, true);
     sleep_ms(1);
 
     // get beginning frame of lidar data
@@ -57,7 +57,7 @@ void get_tfmini_data_from_i2c(i2c_inst_t *i2c, const uint8_t addr, uint8_t *buf,
     }
 }
 
-TFminiPlus::TFminiPlus(i2c_inst_t *i2c, const uint8_t addr) : i2c_inst_(i2c), address_i2c_(addr) {
+TFLidar::TFLidar(i2c_inst_t *i2c, const uint8_t addr) : i2c_inst_(i2c), address_i2c_(addr) {
     is_i2c_ = true;
     buffer_i2c_[0] = 0;
 
@@ -66,7 +66,7 @@ TFminiPlus::TFminiPlus(i2c_inst_t *i2c, const uint8_t addr) : i2c_inst_(i2c), ad
     buffer_uart_[0] = 0;
 }
 
-TFminiPlus::TFminiPlus(uart_inst_t *uart) : uart_inst_(uart) {
+TFLidar::TFLidar(uart_inst_t *uart) : uart_inst_(uart) {
     is_i2c_ = false;
     address_i2c_ = 0;
     i2c_inst_ = nullptr;
@@ -76,11 +76,11 @@ TFminiPlus::TFminiPlus(uart_inst_t *uart) : uart_inst_(uart) {
     buffer_uart_[0] = 0;
 }
 
-tfminiplus_data_t TFminiPlus::getLidarData() {
-    tfminiplus_data_t lidar_data = {0, 0, 0.0};
+tf_lidar_data_t TFLidar::getLidarData() {
+    tf_lidar_data_t lidar_data = {0, 0, 0.0};
     if (is_i2c_) {
         // send command to read data
-        i2c_write_blocking(i2c_inst_, address_i2c_, TFMINIPLUS_GET_DATA_I2C_CMD, 5, true);
+        i2c_write_blocking(i2c_inst_, address_i2c_, TF_LIDAR_GET_DATA_I2C_CMD, 5, true);
         sleep_ms(1);
 
         // get beginning frame of lidar data

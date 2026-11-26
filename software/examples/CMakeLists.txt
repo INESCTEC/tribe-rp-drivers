@@ -199,35 +199,35 @@ target_link_libraries(rp_gp2y0e02b_distance
         pico_stdlib)
 
 ###########################################################################
-# TFmini Plus Lidar (UART) example
+# Benewake's TF Lidar (UART) example
 ###########################################################################
-add_executable(rp_tfminiplus_lidar_uart src/rp_tfminiplus_lidar_uart.cpp)
+add_executable(rp_tflidar_uart_example src/rp_tflidar_uart_example.cpp)
 
-target_include_directories(rp_tfminiplus_lidar_uart PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../drivers/include)
+target_include_directories(rp_tflidar_uart_example PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../drivers/include)
 
-pico_enable_stdio_usb(rp_tfminiplus_lidar_uart 1)
-pico_enable_stdio_uart(rp_tfminiplus_lidar_uart 0)
+pico_enable_stdio_usb(rp_tflidar_uart_example 1)
+pico_enable_stdio_uart(rp_tflidar_uart_example 0)
 
-pico_add_extra_outputs(rp_tfminiplus_lidar_uart)
+pico_add_extra_outputs(rp_tflidar_uart_example)
 
-target_link_libraries(rp_tfminiplus_lidar_uart
-        rp_agrolib_tfminiplus
+target_link_libraries(rp_tflidar_uart_example
+        rp_agrolib_tflidar
         pico_stdlib)
 
 ###########################################################################
-# TFmini Plus Lidar (I2C) example
+# Benewake's TF Lidar (I2C) example
 ###########################################################################
-add_executable(rp_tfminiplus_lidar_i2c src/rp_tfminiplus_lidar_i2c.cpp)
+add_executable(rp_tflidar_i2c_example src/rp_tflidar_i2c_example.cpp)
 
-target_include_directories(rp_tfminiplus_lidar_i2c PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../drivers/include)
+target_include_directories(rp_tflidar_i2c_example PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../drivers/include)
 
-pico_enable_stdio_usb(rp_tfminiplus_lidar_i2c 1)
-pico_enable_stdio_uart(rp_tfminiplus_lidar_i2c 0)
+pico_enable_stdio_usb(rp_tflidar_i2c_example 1)
+pico_enable_stdio_uart(rp_tflidar_i2c_example 0)
 
-pico_add_extra_outputs(rp_tfminiplus_lidar_i2c)
+pico_add_extra_outputs(rp_tflidar_i2c_example)
 
-target_link_libraries(rp_tfminiplus_lidar_i2c
-        rp_agrolib_tfminiplus
+target_link_libraries(rp_tflidar_i2c_example
+        rp_agrolib_tflidar
         pico_stdlib)
 
 ###########################################################################
