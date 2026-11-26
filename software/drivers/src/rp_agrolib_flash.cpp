@@ -59,25 +59,31 @@ int Flash::programSinglePage(int flash_offs, uint8_t* data, int size)
     return -1;
   }
 
+  if (flash_offs % FLASH_PAGE_SIZE != 0)
+  {
+    printf("Err flash prog single: offset is not page aligned\n");
+    return -2;
+  }
+
   int addr = XIP_BASE + flash_offs;
   int* p = (int*) addr;
   if (*p != -1)
   {
     printf("Err flash prog single: page is not empty\n");
-    return -2;
+    return -3;
   }
 
   printf("Address addr: %d\n", addr);
   printf("Address start_addr (xip_base + flash_offs): %d\n", flash_offs);
 
   uint8_t buf[1 * (FLASH_PAGE_SIZE / sizeof(uint8_t))];
-  for (size_t i = 0; i < size; ++i)
-    buf[i] = data[i];
+  memset(buf, 0xFF, sizeof(buf));
+  memcpy(buf, data, size);
 
-  uint32_t interrupts;
-  interrupts = save_and_disable_interrupts();
+  uint32_t interrupts = save_and_disable_interrupts();
   flash_range_program(flash_offs, (uint8_t*) buf, FLASH_PAGE_SIZE);
   restore_interrupts(interrupts);
+
   return 0;
 }
 
