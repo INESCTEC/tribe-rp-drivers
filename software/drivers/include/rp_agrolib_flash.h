@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdio.h>
+#include <string.h>
 #include "pico/stdlib.h"
 extern "C" {
   #include "hardware/sync.h"
