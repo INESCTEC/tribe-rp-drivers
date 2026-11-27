@@ -123,7 +123,8 @@ ___
 - [x] USB power delivery TPS25750DRJKR (Texas)
 - [x] Optical distance sensor GP2Y0E02B
 - [x] LiDAR VL53L4CD ToF
-- [x] LiDAR TFmini-Plus
+- [x] TFmini-Plus LiDAR
+- [x] TF02-Pro LiDAR
 - [x] ADS1115
 - [x] ADS1232
 - [X] BNO055 IMU
